@@ -49,54 +49,84 @@ async function bench_insert(
   b.end();
 }
 
-for (const n of [1, 2, 5, 10]) {
-  Deno.bench(`pglue (select, n=${n})`, async (b) => {
-    await bench_select(b, n, () => c_pglue.query`select * from pg_type`);
+for (const n of [1, 5, 10]) {
+  Deno.bench({
+    name: `pglue`,
+    group: `select n=${n}`,
+    baseline: true,
+    async fn(b) {
+      await bench_select(b, n, () => c_pglue.query`select * from pg_type`);
+    },
   });
 
-  Deno.bench(`postgres.js (select, n=${n})`, async (b) => {
-    await bench_select(b, n, () => c_pgjs`select * from pg_type`);
+  Deno.bench({
+    name: `postgres.js`,
+    group: `select n=${n}`,
+    async fn(b) {
+      await bench_select(b, n, () => c_pgjs`select * from pg_type`);
+    },
   });
 
-  Deno.bench(`deno-postgres (select, n=${n})`, async (b) => {
-    await bench_select(b, n, () => c_denopg.queryArray`select * from pg_type`);
+  Deno.bench({
+    name: `deno-postgres`,
+    group: `select n=${n}`,
+    async fn(b) {
+      await bench_select(
+        b,
+        n,
+        () => c_denopg.queryArray`select * from pg_type`
+      );
+    },
   });
 }
 
-for (const n of [1, 2, 5, 10, 50, 100, 200]) {
-  Deno.bench(`pglue (insert, n=${n})`, async (b) => {
-    await using _tx = await c_pglue.begin();
-    await c_pglue.query`create table my_table (a text not null, b boolean not null, c integer not null)`;
-    await bench_insert(b, n, (a, b, c) =>
-      c_pglue.query`insert into my_table (a, b, c) values (${a}, ${b}, ${c})`.execute()
-    );
-  });
-
-  Deno.bench(`postgres.js (insert, n=${n})`, async (b) => {
-    await c_pgjs`begin`;
-    try {
-      await c_pgjs`create table my_table (a text not null, b boolean not null, c integer not null)`;
+for (const n of [1, 10, 100, 200]) {
+  Deno.bench({
+    name: `pglue`,
+    group: `insert n=${n}`,
+    baseline: true,
+    async fn(b) {
+      await using _tx = await c_pglue.begin();
+      await c_pglue.query`create table my_table (a text not null, b boolean not null, c integer not null)`;
       await bench_insert(b, n, (a, b, c) =>
-        c_pgjs`insert into my_table (a, b, c) values (${a}, ${b}, ${c})`.execute()
+        c_pglue.query`insert into my_table (a, b, c) values (${a}, ${b}, ${c})`.execute()
       );
-    } finally {
-      await c_pgjs`rollback`;
-    }
+    },
   });
 
-  Deno.bench(`deno-postgres (insert, n=${n})`, async (b) => {
-    const tx = c_denopg.createTransaction(`my_tx`);
-    await tx.begin();
-    try {
-      await tx.queryArray`create table my_table (a text not null, b boolean not null, c integer not null)`;
-      await bench_insert(
-        b,
-        n,
-        (a, b, c) =>
-          tx.queryArray`insert into my_table (a, b, c) values (${a}, ${b}, ${c})`
-      );
-    } finally {
-      await tx.rollback();
-    }
+  Deno.bench({
+    name: `postgres.js`,
+    group: `insert n=${n}`,
+    async fn(b) {
+      await c_pgjs`begin`;
+      try {
+        await c_pgjs`create table my_table (a text not null, b boolean not null, c integer not null)`;
+        await bench_insert(b, n, (a, b, c) =>
+          c_pgjs`insert into my_table (a, b, c) values (${a}, ${b}, ${c})`.execute()
+        );
+      } finally {
+        await c_pgjs`rollback`;
+      }
+    },
+  });
+
+  Deno.bench({
+    name: `deno-postgres`,
+    group: `insert n=${n}`,
+    async fn(b) {
+      const tx = c_denopg.createTransaction(`my_tx`);
+      await tx.begin();
+      try {
+        await tx.queryArray`create table my_table (a text not null, b boolean not null, c integer not null)`;
+        await bench_insert(
+          b,
+          n,
+          (a, b, c) =>
+            tx.queryArray`insert into my_table (a, b, c) values (${a}, ${b}, ${c})`
+        );
+      } finally {
+        await tx.rollback();
+      }
+    },
   });
 }
