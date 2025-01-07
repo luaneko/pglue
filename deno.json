@@ -1,0 +1,9 @@
+{
+  "name": "@luaneko/pglue",
+  "version": "0.1.0",
+  "exports": "./mod.ts",
+  "tasks": {
+    "test": "deno run --watch -A mod_test.ts",
+    "bench": "deno bench --watch -A"
+  }
+}
