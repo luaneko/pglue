@@ -1,10 +1,15 @@
-import { read_i8 } from "./lstd.ts";
-import { read_i16_be } from "./lstd.ts";
-import { read_i32_be } from "./lstd.ts";
-import { write_i32_be } from "./lstd.ts";
-import { write_i16_be } from "./lstd.ts";
-import { write_i8 } from "./lstd.ts";
-import { encode_utf8, from_utf8, jit } from "./lstd.ts";
+import {
+  type BinaryLike,
+  encode_utf8,
+  from_utf8,
+  jit,
+  read_i16_be,
+  read_i32_be,
+  read_i8,
+  write_i16_be,
+  write_i32_be,
+  write_i8,
+} from "./lstd.ts";
 
 export class EncoderError extends Error {
   override get name() {
@@ -114,7 +119,7 @@ export function byten(n: number): Encoder<Uint8Array> {
   };
 }
 
-export const byten_lp: Encoder<Uint8Array | string | null> = {
+export const byten_lp: Encoder<BinaryLike | null> = {
   const_size: null,
   allocs(s) {
     let size = 4;
@@ -136,7 +141,7 @@ export const byten_lp: Encoder<Uint8Array | string | null> = {
   },
 };
 
-export const byten_rest: Encoder<Uint8Array | string> = {
+export const byten_rest: Encoder<BinaryLike | string> = {
   const_size: null,
   allocs(s) {
     if (typeof s === "string") return s.length * 3;
