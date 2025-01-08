@@ -25,9 +25,9 @@ import {
   oneof,
   ser_decode,
   ser_encode,
-  u16,
+  i16,
   i32,
-  u8,
+  i8,
   sum_const_size,
 } from "./ser.ts";
 import {
@@ -119,7 +119,7 @@ function msg<T extends string, S extends ObjectShape>(
   shape: S
 ): MessageEncoder<T, S> {
   const header_size = type !== "" ? 5 : 4;
-  const ty = type !== "" ? oneof(char(u8), type) : null;
+  const ty = type !== "" ? oneof(char(i8), type) : null;
   const fields = object(shape);
 
   return {
@@ -160,7 +160,7 @@ function msg_check_err(msg: Uint8Array) {
 
 // https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS
 export const Header = object({
-  type: char(u8),
+  type: char(i8),
   length: i32,
 });
 
@@ -237,9 +237,9 @@ export const BackendKeyData = msg("K", {
 export const Bind = msg("B", {
   portal: cstring,
   statement: cstring,
-  param_formats: array(u16, u16),
-  param_values: array(u16, byten_lp),
-  column_formats: array(u16, u16),
+  param_formats: array(i16, i16),
+  param_values: array(i16, byten_lp),
+  column_formats: array(i16, i16),
 });
 
 export const BindComplete = msg("2", {});
@@ -251,7 +251,7 @@ export const CancelRequest = msg("", {
 });
 
 export const Close = msg("C", {
-  which: oneof(char(u8), "S" as const, "P" as const),
+  which: oneof(char(i8), "S" as const, "P" as const),
   name: cstring,
 });
 
@@ -262,32 +262,32 @@ export const CopyDone = msg("c", {});
 export const CopyFail = msg("f", { cause: cstring });
 
 export const CopyInResponse = msg("G", {
-  format: u8,
-  column_formats: array(u16, u16),
+  format: i8,
+  column_formats: array(i16, i16),
 });
 
 export const CopyOutResponse = msg("H", {
-  format: u8,
-  column_formats: array(u16, u16),
+  format: i8,
+  column_formats: array(i16, i16),
 });
 
 export const CopyBothResponse = msg("W", {
-  format: u8,
-  column_formats: array(u16, u16),
+  format: i8,
+  column_formats: array(i16, i16),
 });
 
 export const DataRow = msg("D", {
-  column_values: array(u16, byten_lp),
+  column_values: array(i16, byten_lp),
 });
 
 export const Describe = msg("D", {
-  which: oneof(char(u8), "S" as const, "P" as const),
+  which: oneof(char(i8), "S" as const, "P" as const),
   name: cstring,
 });
 
 export const EmptyQueryResponse = msg("I", {});
 
-const err_field = char(u8);
+const err_field = char(i8);
 const err_fields: Encoder<Record<string, string>> = {
   const_size: null,
   allocs(x) {
@@ -325,9 +325,9 @@ export const Flush = msg("H", {});
 
 export const FunctionCall = msg("F", {
   oid: i32,
-  arg_formats: array(u16, u16),
-  arg_values: array(u16, byten_lp),
-  result_format: u16,
+  arg_formats: array(i16, i16),
+  arg_values: array(i16, byten_lp),
+  result_format: i16,
 });
 
 export const FunctionCallResponse = msg("V", {
@@ -352,7 +352,7 @@ export const NotificationResponse = msg("A", {
 });
 
 export const ParameterDescription = msg("t", {
-  param_types: array(u16, i32),
+  param_types: array(i16, i32),
 });
 
 export const ParameterStatus = msg("S", {
@@ -363,7 +363,7 @@ export const ParameterStatus = msg("S", {
 export const Parse = msg("P", {
   statement: cstring,
   query: cstring,
-  param_types: array(u16, i32),
+  param_types: array(i16, i32),
 });
 
 export const ParseComplete = msg("1", {});
@@ -379,20 +379,20 @@ export const QueryMessage = msg("Q", {
 });
 
 export const ReadyForQuery = msg("Z", {
-  tx_status: oneof(char(u8), "I" as const, "T" as const, "E" as const),
+  tx_status: oneof(char(i8), "I" as const, "T" as const, "E" as const),
 });
 
 export const RowDescription = msg("T", {
   columns: array(
-    u16,
+    i16,
     object({
       name: cstring,
       table_oid: i32,
-      table_column: u16,
+      table_column: i16,
       type_oid: i32,
-      type_size: u16,
+      type_size: i16,
       type_modifier: i32,
-      format: u16,
+      format: i16,
     })
   ),
 });
@@ -421,7 +421,7 @@ export const StartupMessage = msg("", {
       for (const { 0: key, 1: value } of Object.entries(x)) {
         cstring.encode(buf, cur, key), cstring.encode(buf, cur, value);
       }
-      u8.encode(buf, cur, 0);
+      i8.encode(buf, cur, 0);
     },
     decode(buf, cur) {
       const x: Record<string, string> = {};

@@ -1,3 +1,9 @@
+import { read_i8 } from "./lstd.ts";
+import { read_i16_be } from "./lstd.ts";
+import { read_i32_be } from "./lstd.ts";
+import { write_i32_be } from "./lstd.ts";
+import { write_i16_be } from "./lstd.ts";
+import { write_i8 } from "./lstd.ts";
 import { encode_utf8, from_utf8, jit } from "./lstd.ts";
 
 export class EncoderError extends Error {
@@ -40,34 +46,30 @@ export function sum_const_size(...ns: (number | null)[]) {
 }
 
 // https://www.postgresql.org/docs/current/protocol-message-types.html#PROTOCOL-MESSAGE-TYPES
-export const u8: Encoder<number> = {
+export const i8: Encoder<number> = {
   const_size: 1,
   allocs() {
     return 1;
   },
   encode(buf, cur, n) {
-    buf[cur.i++] = n & 0xff;
+    write_i8(buf, n, cur.i++);
   },
   decode(buf, cur) {
-    return buf[cur.i++];
+    return read_i8(buf, cur.i++);
   },
 };
 
-export const u16: Encoder<number> = {
+export const i16: Encoder<number> = {
   const_size: 2,
   allocs() {
     return 2;
   },
   encode(buf, cur, n) {
-    let { i } = cur;
-    buf[i++] = (n >>> 8) & 0xff;
-    buf[i++] = n & 0xff;
-    cur.i = i;
+    write_i16_be(buf, n, cur.i), (cur.i += 2);
   },
   decode(buf, cur) {
-    let { i } = cur;
-    const n = (buf[i++] << 8) + buf[i++];
-    return (cur.i = i), n;
+    const n = read_i16_be(buf, cur.i);
+    return (cur.i += 2), n;
   },
 };
 
@@ -77,17 +79,11 @@ export const i32: Encoder<number> = {
     return 4;
   },
   encode(buf, cur, n) {
-    let { i } = cur;
-    buf[i++] = (n >>> 24) & 0xff;
-    buf[i++] = (n >>> 16) & 0xff;
-    buf[i++] = (n >>> 8) & 0xff;
-    buf[i++] = n & 0xff;
-    cur.i = i;
+    write_i32_be(buf, n, cur.i), (cur.i += 4);
   },
   decode(buf, cur) {
-    let { i } = cur;
-    const n = (buf[i++] << 24) + (buf[i++] << 16) + (buf[i++] << 8) + buf[i++];
-    return (cur.i = i), n;
+    const n = read_i32_be(buf, cur.i);
+    return (cur.i += 4), n;
   },
 };
 
