@@ -14,8 +14,8 @@ import {
 import {
   array,
   byten,
-  byten_lp,
-  byten_rest,
+  bytes_lp,
+  bytes,
   char,
   cstring,
   type Encoder,
@@ -190,7 +190,7 @@ export const AuthenticationGSS = msg("R", {
 
 export const AuthenticationGSSContinue = msg("R", {
   status: oneof(i32, 8 as const),
-  data: byten_rest,
+  data: bytes,
 });
 
 export const AuthenticationSSPI = msg("R", {
@@ -220,12 +220,12 @@ export const AuthenticationSASL = msg("R", {
 
 export const AuthenticationSASLContinue = msg("R", {
   status: oneof(i32, 11 as const),
-  data: byten_rest,
+  data: bytes,
 });
 
 export const AuthenticationSASLFinal = msg("R", {
   status: oneof(i32, 12 as const),
-  data: byten_rest,
+  data: bytes,
 });
 
 export const BackendKeyData = msg("K", {
@@ -237,7 +237,7 @@ export const Bind = msg("B", {
   portal: cstring,
   statement: cstring,
   param_formats: array(i16, i16),
-  param_values: array(i16, byten_lp),
+  param_values: array(i16, bytes_lp),
   column_formats: array(i16, i16),
 });
 
@@ -256,7 +256,7 @@ export const Close = msg("C", {
 
 export const CloseComplete = msg("3", {});
 export const CommandComplete = msg("C", { tag: cstring });
-export const CopyData = msg("d", { data: byten_rest });
+export const CopyData = msg("d", { data: bytes });
 export const CopyDone = msg("c", {});
 export const CopyFail = msg("f", { cause: cstring });
 
@@ -276,7 +276,7 @@ export const CopyBothResponse = msg("W", {
 });
 
 export const DataRow = msg("D", {
-  column_values: array(i16, byten_lp),
+  column_values: array(i16, bytes_lp),
 });
 
 export const Describe = msg("D", {
@@ -325,12 +325,12 @@ export const Flush = msg("H", {});
 export const FunctionCall = msg("F", {
   oid: i32,
   arg_formats: array(i16, i16),
-  arg_values: array(i16, byten_lp),
+  arg_values: array(i16, bytes_lp),
   result_format: i16,
 });
 
 export const FunctionCallResponse = msg("V", {
-  result_value: byten_lp,
+  result_value: bytes_lp,
 });
 
 export const NegotiateProtocolVersion = msg("v", {
@@ -398,11 +398,11 @@ export const RowDescription = msg("T", {
 
 export const SASLInitialResponse = msg("p", {
   mechanism: cstring,
-  data: byten_lp,
+  data: bytes_lp,
 });
 
 export const SASLResponse = msg("p", {
-  data: byten_rest,
+  data: bytes,
 });
 
 export const StartupMessage = msg("", {

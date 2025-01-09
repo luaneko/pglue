@@ -110,7 +110,21 @@ export function byten(n: number): Encoder<Uint8Array> {
   };
 }
 
-export const byten_lp: Encoder<BinaryLike | null> = {
+export const bytes: Encoder<BinaryLike> = {
+  const_size: null,
+  allocs(s) {
+    if (typeof s === "string") return s.length * 3;
+    else return s.length;
+  },
+  encode(buf, cur, s) {
+    cur.i += encode_utf8(s, buf.subarray(cur.i));
+  },
+  decode(buf, cur) {
+    return buf.subarray(cur.i, (cur.i = buf.length));
+  },
+};
+
+export const bytes_lp: Encoder<BinaryLike | null> = {
   const_size: null,
   allocs(s) {
     let size = 4;
@@ -129,20 +143,6 @@ export const byten_lp: Encoder<BinaryLike | null> = {
   decode(buf, cur) {
     const n = i32.decode(buf, cur);
     return n === -1 ? null : buf.subarray(cur.i, (cur.i += n));
-  },
-};
-
-export const byten_rest: Encoder<BinaryLike | string> = {
-  const_size: null,
-  allocs(s) {
-    if (typeof s === "string") return s.length * 3;
-    else return s.length;
-  },
-  encode(buf, cur, s) {
-    cur.i += encode_utf8(s, buf.subarray(cur.i));
-  },
-  decode(buf, cur) {
-    return buf.subarray(cur.i, (cur.i = buf.length));
   },
 };
 
