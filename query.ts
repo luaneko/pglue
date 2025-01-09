@@ -29,9 +29,7 @@ export function row_ctor(from_sql: FromSql, columns: RowDescription) {
 
   const Row = jit.compiled<RowConstructor>`function Row(xs) {
     ${jit.map(" ", columns, ({ name, type_oid }, i) => {
-      return jit`this[${jit.literal(name)}] = ${from_sql}(
-        new ${SqlValue}(${jit.literal(type_oid)}, ${parse}(xs[${jit.literal(i)}]))
-      );`;
+      return jit`this[${name}] = ${from_sql}(new ${SqlValue}(${type_oid}, ${parse}(xs[${i}])));`;
     })}
   }`;
 
@@ -50,7 +48,7 @@ export function row_ctor(from_sql: FromSql, columns: RowDescription) {
       configurable: true,
       value: jit.compiled`function* iter() {
         ${jit.map(" ", columns, ({ name }) => {
-          return jit`yield this[${jit.literal(name)}];`;
+          return jit`yield this[${name}];`;
         })}
       }`,
     },

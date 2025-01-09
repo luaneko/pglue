@@ -28,7 +28,6 @@ import {
   i16,
   i32,
   i8,
-  sum_const_size,
 } from "./ser.ts";
 import {
   is_sql,
@@ -123,7 +122,7 @@ function msg<T extends string, S extends ObjectShape>(
   const fields = object(shape);
 
   return {
-    const_size: sum_const_size(header_size, fields.const_size),
+    const_size: null,
     get type() {
       return type;
     },

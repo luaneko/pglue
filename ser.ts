@@ -41,15 +41,6 @@ export interface Encoder<T> {
 export type EncoderType<E extends Encoder<unknown>> =
   E extends Encoder<infer T> ? T : never;
 
-export function sum_const_size(...ns: (number | null)[]) {
-  let sum = 0;
-  for (const n of ns) {
-    if (n !== null) sum += n;
-    else return null;
-  }
-  return sum;
-}
-
 // https://www.postgresql.org/docs/current/protocol-message-types.html#PROTOCOL-MESSAGE-TYPES
 export const i8: Encoder<number> = {
   const_size: 1,
@@ -216,7 +207,7 @@ export function array<T>(
 ): ArrayEncoder<T> {
   const { const_size } = type;
   return {
-    const_size,
+    const_size: null,
     allocs:
       const_size !== null
         ? function allocs(xs: T[]) {
@@ -250,21 +241,28 @@ export interface ObjectEncoder<S extends ObjectShape>
 export function object<S extends ObjectShape>(shape: S): ObjectEncoder<S> {
   const keys = Object.keys(shape);
   return jit.compiled`{
-    const_size: ${jit.literal(sum_const_size(...keys.map((k) => shape[k].const_size)))},
+    const_size: null,
     allocs(x) {
+      return ${jit.if(
+        keys.length === 0,
+        jit`0`,
+        jit.map(" + ", keys, (k) => {
+          return shape[k].const_size ?? jit`${shape[k]}.allocs(x[${k}])`;
+        })
+      )};
       return 0${jit.map("", keys, (k) => {
-        return jit` + ${shape[k]}.allocs(x[${jit.literal(k)}])`;
+        return jit` + ${shape[k]}.allocs(x[${k}])`;
       })};
     },
     encode(buf, cur, x) {
       ${jit.map(" ", keys, (k) => {
-        return jit`${shape[k]}.encode(buf, cur, x[${jit.literal(k)}]);`;
+        return jit`${shape[k]}.encode(buf, cur, x[${k}]);`;
       })}
     },
     decode(buf, cur) {
       return {
         ${jit.map(", ", keys, (k) => {
-          return jit`[${jit.literal(k)}]: ${shape[k]}.decode(buf, cur)`;
+          return jit`[${k}]: ${shape[k]}.decode(buf, cur)`;
         })}
       };
     },
