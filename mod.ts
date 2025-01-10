@@ -9,7 +9,7 @@ import {
   unknown,
 } from "./valita.ts";
 import { Pool, wire_connect, type LogLevel } from "./wire.ts";
-import { sql_types, type SqlType, type SqlTypeMap } from "./query.ts";
+import { sql_types, type SqlTypeMap } from "./query.ts";
 
 export {
   WireError,

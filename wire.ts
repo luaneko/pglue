@@ -909,8 +909,8 @@ function wire_impl(
                 : ser_decode(RowDescription, msg);
 
             return {
-              ser_params: param_ser(param_desc),
-              Row: row_ctor(row_desc),
+              ser_params: make_param_ser(param_desc),
+              Row: make_row_ctor(row_desc),
             };
           }
         );
@@ -930,7 +930,7 @@ function wire_impl(
     (params: unknown[]): (string | null)[];
   }
 
-  function param_ser({ param_types }: ParameterDescription) {
+  function make_param_ser({ param_types }: ParameterDescription) {
     return jit.compiled<ParameterSerializer>`function ser_params(xs) {
       return [
         ${jit.map(", ", param_types, (type_oid, i) => {
@@ -946,7 +946,7 @@ function wire_impl(
     new (columns: (BinaryLike | null)[]): Row;
   }
 
-  function row_ctor({ columns }: RowDescription) {
+  function make_row_ctor({ columns }: RowDescription) {
     const Row = jit.compiled<RowConstructor>`function Row(xs) {
       ${jit.map(" ", columns, ({ name, type_oid }, i) => {
         const type = types[type_oid] ?? text;
