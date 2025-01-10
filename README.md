@@ -4,11 +4,11 @@ The glue for TypeScript to PostgreSQL.
 
 ## Overview
 
-- 🌟 [High performance](#benchmarks), fully asynchronous, in modern TypeScript
+- 🌟 [High performance](#benchmarks), fully asynchronous, written in modern TypeScript
 - 🐢 First class Deno support
 - 💬 Automatic query parameterisation
 - 🌧️ Automatic query pipelining
-- 📣 `listen`/`notify` support
+- 📣 Listen/notify support
 - 📤 Connection pool support
 
 ## Documentation
@@ -19,9 +19,9 @@ TODO: Write the documentation in more detail here.
 
 Performance is generally on par with [postgres.js][1] and up to **5x faster** than [deno-postgres][2]. Keep in mind that database driver benchmarks are largely dependent on the database performance itself and does not necessarily represent accurate real-world performance.
 
-Tested on a 4 core 2800 MHz x86_64-pc-linux-gnu QEMU VM with Deno 2.1.4 and local PostgreSQL 17.1 installation connected via TCP on localhost:
+Tested on a 4 core, 2800 MHz, x86_64-pc-linux-gnu, QEMU VM, with Deno 2.1.4 and PostgreSQL 17.1 on localhost:
 
-Query: `select * from pg_type`
+Query `select * from pg_type`:
 
 ```
     CPU | Common KVM Processor v2.0
@@ -61,7 +61,7 @@ summary
      4.14x faster than deno-postgres
 ```
 
-Query: `insert into my_table (a, b, c) values (${a}, ${b}, ${c})`
+Query `insert into my_table (a, b, c) values (${a}, ${b}, ${c})`:
 
 ```
 group insert n=1
