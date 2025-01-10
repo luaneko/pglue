@@ -1,8 +1,19 @@
 # pglue
 
-## Performance
+The glue for TypeScript to PostgreSQL.
 
-pglue implements automatic query pipelining which makes it especially performant with many queries concurrently executed on a single connection.
+## Overview
+
+- 🌟 [High performance](#benchmarks), fully asynchronous, in modern TypeScript
+- 🐢 First class Deno support
+- 💬 Automatic query parameterisation
+- 🌧️ Automatic query pipelining
+- 📣 `listen`/`notify` support
+- 📤 Connection pool support
+
+## Documentation
+
+TODO: Write the documentation in more detail here.
 
 ## Benchmarks
 
@@ -10,7 +21,7 @@ Performance is generally on par with [postgres.js][1] and up to **5x faster** th
 
 Tested on a 4 core 2800 MHz x86_64-pc-linux-gnu QEMU VM with Deno 2.1.4 and local PostgreSQL 17.1 installation connected via TCP on localhost:
 
-Test query: `select * from pg_type`
+Query: `select * from pg_type`
 
 ```
     CPU | Common KVM Processor v2.0
@@ -50,7 +61,7 @@ summary
      4.14x faster than deno-postgres
 ```
 
-Test query: `insert into my_table (a, b, c) values (${a}, ${b}, ${c})`
+Query: `insert into my_table (a, b, c) values (${a}, ${b}, ${c})`
 
 ```
 group insert n=1
