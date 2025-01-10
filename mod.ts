@@ -9,7 +9,7 @@ import {
   unknown,
 } from "./valita.ts";
 import { Pool, wire_connect, type LogLevel } from "./wire.ts";
-import { type FromSql, type ToSql, from_sql, to_sql } from "./sql.ts";
+import { sql_types, type SqlType, type SqlTypeMap } from "./query.ts";
 
 export {
   WireError,
@@ -21,13 +21,11 @@ export {
 } from "./wire.ts";
 export {
   type SqlFragment,
-  type FromSql,
-  type ToSql,
-  SqlValue,
+  type SqlType,
+  type SqlTypeMap,
+  SqlTypeError,
   sql,
   is_sql,
-} from "./sql.ts";
-export {
   Query,
   type Row,
   type CommandResult,
@@ -45,8 +43,7 @@ export type Options = {
   max_connections?: number;
   idle_timeout?: number;
   runtime_params?: Record<string, string>;
-  from_sql?: FromSql;
-  to_sql?: ToSql;
+  types?: SqlTypeMap;
 };
 
 type ParsedOptions = Infer<typeof ParsedOptions>;
@@ -64,15 +61,12 @@ const ParsedOptions = object({
   runtime_params: record(string()).optional(() => ({})),
   max_connections: number().optional(() => 10),
   idle_timeout: number().optional(() => 20),
-  from_sql: unknown()
-    .assert((s): s is FromSql => typeof s === "function")
-    .optional(() => from_sql),
-  to_sql: unknown()
-    .assert((s): s is ToSql => typeof s === "function")
-    .optional(() => to_sql),
+  types: record(unknown())
+    .optional(() => ({}))
+    .map((types): SqlTypeMap => ({ ...sql_types, ...types })),
 });
 
-function parse_opts(s: string, options: Options) {
+function parse_opts(s: string, opts: Options) {
   const {
     host,
     port,
@@ -87,13 +81,13 @@ function parse_opts(s: string, options: Options) {
     Deno.env.toObject();
 
   return ParsedOptions.parse({
-    ...options,
-    host: options.host ?? host ?? PGHOST ?? undefined,
-    port: options.port ?? port ?? PGPORT ?? undefined,
-    user: options.user ?? user ?? PGUSER ?? USER ?? undefined,
-    password: options.password ?? password ?? PGPASSWORD ?? undefined,
-    database: options.database ?? database ?? PGDATABASE ?? undefined,
-    runtime_params: { ...runtime_params, ...options.runtime_params },
+    ...opts,
+    host: opts.host ?? host ?? PGHOST ?? undefined,
+    port: opts.port ?? port ?? PGPORT ?? undefined,
+    user: opts.user ?? user ?? PGUSER ?? USER ?? undefined,
+    password: opts.password ?? password ?? PGPASSWORD ?? undefined,
+    database: opts.database ?? database ?? PGDATABASE ?? undefined,
+    runtime_params: { ...runtime_params, ...opts.runtime_params },
   });
 }
 

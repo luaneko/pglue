@@ -1,10 +1,12 @@
 import {
+  type BinaryLike,
   buf_concat_fast,
   buf_eq,
   buf_xor,
   channel,
   from_base64,
   from_utf8,
+  jit,
   semaphore,
   semaphore_fast,
   to_base64,
@@ -28,21 +30,18 @@ import {
   i16,
   i32,
   i8,
+  type EncoderType,
 } from "./ser.ts";
 import {
-  is_sql,
-  sql,
-  type FromSql,
-  type SqlFragment,
-  type ToSql,
-} from "./sql.ts";
-import {
   type CommandResult,
+  is_sql,
   Query,
   type ResultStream,
   type Row,
-  row_ctor,
-  type RowConstructor,
+  sql,
+  type SqlFragment,
+  type SqlTypeMap,
+  text,
 } from "./query.ts";
 import { join } from "jsr:@std/path@^1.0.8";
 
@@ -446,8 +445,7 @@ export interface WireOptions {
   readonly password: string;
   readonly database: string | null;
   readonly runtime_params: Record<string, string>;
-  readonly from_sql: FromSql;
-  readonly to_sql: ToSql;
+  readonly types: SqlTypeMap;
 }
 
 export type WireEvents = {
@@ -542,7 +540,8 @@ export class Wire extends TypedEmitter<WireEvents> implements Disposable {
     if (typeof f !== "undefined") {
       await using tx = await this.#begin();
       const value = await f(this, tx);
-      return await tx.commit(), value;
+      if (tx.open) await tx.commit();
+      return value;
     } else {
       return this.#begin();
     }
@@ -583,7 +582,7 @@ export class Wire extends TypedEmitter<WireEvents> implements Disposable {
 function wire_impl(
   wire: Wire,
   socket: Deno.Conn,
-  { user, database, password, runtime_params, from_sql, to_sql }: WireOptions
+  { user, database, password, runtime_params, types }: WireOptions
 ) {
   const params: Parameters = Object.create(null);
 
@@ -878,45 +877,42 @@ function wire_impl(
   const st_cache = new Map<string, Statement>();
   let st_ids = 0;
 
-  function st_get(query: string, param_types: number[]) {
-    const key = JSON.stringify({ q: query, p: param_types });
-    let st = st_cache.get(key);
-    if (!st) st_cache.set(key, (st = new Statement(query, param_types)));
-    return st;
-  }
-
   class Statement {
     readonly name = `__st${st_ids++}`;
+    constructor(readonly query: string) {}
 
-    constructor(
-      readonly query: string,
-      readonly param_types: number[]
-    ) {}
+    parse_task: Promise<{
+      ser_params: ParameterSerializer;
+      Row: RowConstructor;
+    }> | null = null;
 
-    parse_task: Promise<RowConstructor> | null = null;
     parse() {
       return (this.parse_task ??= this.#parse());
     }
 
     async #parse() {
       try {
-        const { name, query, param_types } = this;
-        return row_ctor(
-          from_sql,
-          await pipeline(
-            async () => {
-              await write(Parse, { statement: name, query, param_types });
-              await write(Describe, { which: "S", name });
-            },
-            async () => {
-              await read(ParseComplete);
-              await read(ParameterDescription);
+        const { name, query } = this;
+        return await pipeline(
+          async () => {
+            await write(Parse, { statement: name, query, param_types: [] });
+            await write(Describe, { which: "S", name });
+          },
+          async () => {
+            await read(ParseComplete);
+            const param_desc = await read(ParameterDescription);
 
-              const msg = msg_check_err(await read_raw());
-              if (msg_type(msg) === NoData.type) return [];
-              else return ser_decode(RowDescription, msg).columns;
-            }
-          )
+            const msg = msg_check_err(await read_raw());
+            const row_desc =
+              msg_type(msg) === NoData.type
+                ? { columns: [] }
+                : ser_decode(RowDescription, msg);
+
+            return {
+              ser_params: param_ser(param_desc),
+              Row: row_ctor(row_desc),
+            };
+          }
         );
       } catch (e) {
         throw ((this.parse_task = null), e);
@@ -927,6 +923,59 @@ function wire_impl(
     portal() {
       return `${this.name}_${this.portals++}`;
     }
+  }
+
+  type ParameterDescription = EncoderType<typeof ParameterDescription>;
+  interface ParameterSerializer {
+    (params: unknown[]): (string | null)[];
+  }
+
+  function param_ser({ param_types }: ParameterDescription) {
+    return jit.compiled<ParameterSerializer>`function ser_params(xs) {
+      return [
+        ${jit.map(", ", param_types, (type_oid, i) => {
+          const type = types[type_oid] ?? text;
+          return jit`${type}.output(xs[${i}])`;
+        })}
+      ];
+    }`;
+  }
+
+  type RowDescription = EncoderType<typeof RowDescription>;
+  interface RowConstructor {
+    new (columns: (BinaryLike | null)[]): Row;
+  }
+
+  function row_ctor({ columns }: RowDescription) {
+    const Row = jit.compiled<RowConstructor>`function Row(xs) {
+      ${jit.map(" ", columns, ({ name, type_oid }, i) => {
+        const type = types[type_oid] ?? text;
+        return jit`this[${name}] = xs[${i}] === null ? null : ${type}.input(${from_utf8}(xs[${i}]));`;
+      })}
+    }`;
+
+    Row.prototype = Object.create(null, {
+      [Symbol.toStringTag]: {
+        configurable: true,
+        value: `Row`,
+      },
+      [Symbol.toPrimitive]: {
+        configurable: true,
+        value: function format() {
+          return [...this].join("\t");
+        },
+      },
+      [Symbol.iterator]: {
+        configurable: true,
+        value: jit.compiled`function* iter() {
+          ${jit.map(" ", columns, ({ name }) => {
+            return jit`yield this[${name}];`;
+          })}
+        }`,
+      },
+    });
+
+    return Row;
   }
 
   async function read_rows(
@@ -1002,7 +1051,7 @@ function wire_impl(
 
   async function* execute_fast(
     st: Statement,
-    params: { types: number[]; values: (string | null)[] },
+    params: unknown[],
     stdin: ReadableStream<Uint8Array> | null,
     stdout: WritableStream<Uint8Array> | null
   ): ResultStream<Row> {
@@ -1012,7 +1061,8 @@ function wire_impl(
       `executing query`
     );
 
-    const Row = await st.parse();
+    const { ser_params, Row } = await st.parse();
+    const param_values = ser_params(params);
     const portal = st.portal();
 
     try {
@@ -1022,7 +1072,7 @@ function wire_impl(
             portal,
             statement: st.name,
             param_formats: [],
-            param_values: params.values,
+            param_values,
             column_formats: [],
           });
           await write(Execute, { portal, row_limit: 0 });
@@ -1049,7 +1099,7 @@ function wire_impl(
 
   async function* execute_chunked(
     st: Statement,
-    params: { types: number[]; values: (string | null)[] },
+    params: unknown[],
     chunk_size: number,
     stdin: ReadableStream<Uint8Array> | null,
     stdout: WritableStream<Uint8Array> | null
@@ -1060,7 +1110,8 @@ function wire_impl(
       `executing chunked query`
     );
 
-    const Row = await st.parse();
+    const { ser_params, Row } = await st.parse();
+    const param_values = ser_params(params);
     const portal = st.portal();
 
     try {
@@ -1070,7 +1121,7 @@ function wire_impl(
             portal,
             statement: st.name,
             param_formats: [],
-            param_values: params.values,
+            param_values,
             column_formats: [],
           });
           await write(Execute, { portal, row_limit: chunk_size });
@@ -1103,8 +1154,9 @@ function wire_impl(
   }
 
   function query(s: SqlFragment) {
-    const { query, params } = sql.format(s, to_sql);
-    const st = st_get(query, params.types);
+    const { query, params } = sql.format(s);
+    let st = st_cache.get(query);
+    if (!st) st_cache.set(query, (st = new Statement(query)));
 
     return new Query(({ chunk_size = 0, stdin = null, stdout = null }) =>
       chunk_size !== 0
@@ -1287,7 +1339,8 @@ export class Pool
     if (typeof f !== "undefined") {
       await using tx = await this.#begin();
       const value = await f(tx.wire, tx);
-      return await tx.commit(), value;
+      if (tx.open) await tx.commit();
+      return value;
     } else {
       return this.#begin();
     }
