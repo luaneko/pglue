@@ -1103,7 +1103,7 @@ function wire_impl(
   ): ResultStream<Row> {
     log("debug", { query: query }, `executing simple query`);
 
-    const { chunks, err } = await pipeline(
+    yield* await pipeline(
       () => (write(QueryMessage, { query }), write_copy_in(stdin)),
       async () => {
         for (let chunks = [], err; ; ) {
@@ -1111,7 +1111,8 @@ function wire_impl(
           switch (msg_type(msg)) {
             default:
             case ReadyForQuery.type:
-              return { chunks, err };
+              if (err) throw err;
+              else return chunks;
 
             case RowDescription.type: {
               const Row = make_row_ctor(ser_decode(RowDescription, msg));
@@ -1135,8 +1136,6 @@ function wire_impl(
       }
     );
 
-    yield* chunks;
-    if (err) throw err;
     return { tag: "" };
   }
 
@@ -1168,7 +1167,7 @@ function wire_impl(
           });
           write(Execute, { portal, row_limit: 0 });
           await write_copy_in(stdin);
-          write(Close, { which: "P" as const, name: portal });
+          write(Close, { which: "P", name: portal });
         },
         async () => {
           await read(BindComplete);
@@ -1181,7 +1180,7 @@ function wire_impl(
     } catch (e) {
       try {
         await pipeline(
-          () => write(Close, { which: "P" as const, name: portal }),
+          () => write(Close, { which: "P", name: portal }),
           () => read(CloseComplete)
         );
       } catch {
@@ -1242,7 +1241,7 @@ function wire_impl(
       return { tag };
     } finally {
       await pipeline(
-        () => write(Close, { which: "P" as const, name: portal }),
+        () => write(Close, { which: "P", name: portal }),
         () => read(CloseComplete)
       );
     }
