@@ -188,3 +188,22 @@ Deno.test(`transactions`, async () => {
     );
   });
 });
+
+Deno.test(`streaming`, async () => {
+  await using pg = await connect();
+  await using _tx = await pg.begin();
+
+  await pg.query`create table my_table (field text not null)`;
+
+  for (let i = 0; i < 100; i++) {
+    await pg.query`insert into my_table (field) values (${i})`;
+  }
+
+  let i = 0;
+  for await (const chunk of pg.query`select * from my_table`.chunked(10)) {
+    expect(chunk.length).toBe(10);
+    for (const row of chunk) expect(row.field).toBe(`${i++}`);
+  }
+
+  expect(i).toBe(100);
+});
