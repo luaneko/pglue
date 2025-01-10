@@ -127,8 +127,34 @@ export const bool: SqlType = {
     return s !== "f";
   },
   output(x) {
-    return typeof x === "undefined" || x === null ? null : x ? "t" : "f";
+    if (typeof x === "undefined" || x === null) return null;
+    const b = bool_names[String(x).toLowerCase()];
+    if (typeof b === "boolean") return b ? "t" : "f";
+    else throw new SqlTypeError(`invalid bool output '${x}'`);
   },
+};
+
+const bool_names: Partial<Record<string, boolean>> = {
+  // https://www.postgresql.org/docs/current/datatype-boolean.html#DATATYPE-BOOLEAN
+  t: true,
+  tr: true,
+  tru: true,
+  true: true,
+  y: true,
+  ye: true,
+  yes: true,
+  on: true,
+  1: true,
+  f: false,
+  fa: false,
+  fal: false,
+  fals: false,
+  false: false,
+  n: false,
+  no: false,
+  of: false,
+  off: false,
+  0: false,
 };
 
 export const text: SqlType = {
@@ -401,7 +427,7 @@ export class Query<T = Row>
 
   async first(): Promise<Result<T>> {
     const { rows, tag } = await this.collect(1);
-    if (!rows.length) throw new Error(`expected one row, got none instead`);
+    if (!rows.length) throw new TypeError(`expected one row, got none instead`);
     const row = rows[0];
     return Object.assign([row] as const, { row: rows[0], tag });
   }
@@ -417,8 +443,9 @@ export class Query<T = Row>
     let next;
     const rows = [];
     for (let i = 0; !(next = await iter.next()).done; ) {
-      const { value: c } = next;
-      for (let j = 0, n = c.length; i < count && j < n; ) rows[i++] = c[j++];
+      const chunk = next.value;
+      for (let j = 0, n = chunk.length; i < count && j < n; )
+        rows[i++] = chunk[j++];
     }
     return Object.assign(rows, next.value, { rows });
   }
@@ -453,7 +480,8 @@ function str_to_stream(s: string) {
   return new ReadableStream({
     type: "bytes",
     start(c) {
-      c.enqueue(to_utf8(s)), c.close();
+      if (s.length !== 0) c.enqueue(to_utf8(s));
+      c.close();
     },
   });
 }

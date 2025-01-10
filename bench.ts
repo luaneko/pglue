@@ -1,4 +1,4 @@
-import * as pglue from "./mod.ts";
+import pglue from "./mod.ts";
 import postgres_js from "https://deno.land/x/postgresjs/mod.js";
 import * as deno_postgres from "https://deno.land/x/postgres/mod.ts";
 

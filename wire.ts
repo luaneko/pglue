@@ -528,8 +528,8 @@ export class Wire extends TypedEmitter<WireEvents> implements Disposable {
     (this.#connected = this.#auth()).catch(close);
   }
 
-  query(sql: SqlFragment): Query;
-  query(s: TemplateStringsArray, ...xs: unknown[]): Query;
+  query<T = Row>(sql: SqlFragment): Query<T>;
+  query<T = Row>(s: TemplateStringsArray, ...xs: unknown[]): Query<T>;
   query(s: TemplateStringsArray | SqlFragment, ...xs: unknown[]) {
     return this.#query(is_sql(s) ? s : sql(s, ...xs));
   }
@@ -557,9 +557,9 @@ export class Wire extends TypedEmitter<WireEvents> implements Disposable {
     return this.#notify(channel, payload);
   }
 
-  async get(param: string, missing_null = true) {
+  async get(param: string) {
     return (
-      await this.query`select current_setting(${param}, ${missing_null})`
+      await this.query`select current_setting(${param}, true)`
         .map(([s]) => String(s))
         .first_or(null)
     )[0];
@@ -609,6 +609,7 @@ function wire_impl(
   }
 
   const read_recv = channel.receiver<Uint8Array>(async function read(send) {
+    let err: unknown;
     try {
       let buf = new Uint8Array();
       for await (const chunk of read_socket()) {
@@ -656,9 +657,10 @@ function wire_impl(
       }
 
       if (buf.length !== 0) throw new WireError(`unexpected end of stream`);
-      wire.emit("close");
     } catch (e) {
-      wire.emit("close", e);
+      throw ((err = e), e);
+    } finally {
+      wire.emit("close", err);
     }
   });
 
@@ -690,23 +692,31 @@ function wire_impl(
   }
 
   function pipeline_read<T>(r: () => T | PromiseLike<T>) {
-    return rlock(async () => {
+    return rlock(async function pipeline_read() {
       try {
         return await r();
       } finally {
-        let msg;
-        while (msg_type((msg = await read_raw())) !== ReadyForQuery.type);
-        ({ tx_status } = ser_decode(ReadyForQuery, msg));
+        try {
+          let msg;
+          while (msg_type((msg = await read_raw())) !== ReadyForQuery.type);
+          ({ tx_status } = ser_decode(ReadyForQuery, msg));
+        } catch {
+          // ignored
+        }
       }
     });
   }
 
   function pipeline_write<T>(w: () => T | PromiseLike<T>) {
-    return wlock(async () => {
+    return wlock(async function pipeline_write() {
       try {
         return await w();
       } finally {
-        await write(Sync, {});
+        try {
+          await write(Sync, {});
+        } catch {
+          // ignored
+        }
       }
     });
   }
@@ -1088,10 +1098,14 @@ function wire_impl(
       if (rows.length) yield rows;
       return { tag };
     } catch (e) {
-      await pipeline(
-        () => write(Close, { which: "P" as const, name: portal }),
-        () => read(CloseComplete)
-      );
+      try {
+        await pipeline(
+          () => write(Close, { which: "P" as const, name: portal }),
+          () => read(CloseComplete)
+        );
+      } catch {
+        // ignored
+      }
 
       throw e;
     }
@@ -1320,8 +1334,8 @@ export class Pool
     }
   }
 
-  query(sql: SqlFragment): Query;
-  query(s: TemplateStringsArray, ...xs: unknown[]): Query;
+  query<T = Row>(sql: SqlFragment): Query<T>;
+  query<T = Row>(s: TemplateStringsArray, ...xs: unknown[]): Query<T>;
   query(s: TemplateStringsArray | SqlFragment, ...xs: unknown[]) {
     s = is_sql(s) ? s : sql(s, ...xs);
     const acquire = this.#acquire;
