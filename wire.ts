@@ -8,7 +8,6 @@ import {
   from_utf8,
   jit,
   semaphore,
-  semaphore_fast,
   to_base64,
   to_utf8,
   TypedEmitter,
@@ -684,8 +683,8 @@ function wire_impl(
   }
 
   // https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-PIPELINING
-  const rlock = semaphore_fast();
-  const wlock = semaphore_fast();
+  const rlock = semaphore();
+  const wlock = semaphore();
 
   function pipeline<T>(
     w: () => void | PromiseLike<void>,
@@ -697,38 +696,39 @@ function wire_impl(
     });
   }
 
-  function pipeline_read<T>(r: () => T | PromiseLike<T>) {
-    return rlock(async function pipeline_read() {
+  async function pipeline_read<T>(r: () => T | PromiseLike<T>) {
+    using _rlock = await rlock();
+    try {
+      return await r();
+    } finally {
       try {
-        return await r();
-      } finally {
-        try {
-          let msg;
-          while (msg_type((msg = await read_raw())) !== ReadyForQuery.type);
-          ({ tx_status } = ser_decode(ReadyForQuery, msg));
-        } catch {
-          // ignored
-        }
+        let msg;
+        while (msg_type((msg = await read_raw())) !== ReadyForQuery.type);
+        ({ tx_status } = ser_decode(ReadyForQuery, msg));
+      } catch {
+        // ignored
       }
-    });
+    }
   }
 
-  function pipeline_write<T>(w: () => T | PromiseLike<T>) {
-    return wlock(async function pipeline_write() {
+  async function pipeline_write<T>(w: () => T | PromiseLike<T>) {
+    using _wlock = await wlock();
+    try {
+      return await w();
+    } finally {
       try {
-        return await w();
-      } finally {
-        try {
-          await write(Sync, {});
-        } catch {
-          // ignored
-        }
+        await write(Sync, {});
+      } catch {
+        // ignored
       }
-    });
+    }
   }
 
   // https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-START-UP
   async function auth() {
+    using _rlock = await rlock();
+    using _wlock = await wlock();
+
     await write(StartupMessage, {
       version: 196608,
       params: {
