@@ -1029,6 +1029,10 @@ function wire_impl(
           const { data } = ser_decode(CopyData, msg_check_err(msg));
           await writer.write(to_utf8(data));
         }
+        await writer.close();
+      } catch (e) {
+        await writer.abort(e);
+        throw e;
       } finally {
         writer.releaseLock();
       }
@@ -1040,17 +1044,13 @@ function wire_impl(
   async function write_copy_in(stream: ReadableStream<Uint8Array> | null) {
     if (stream !== null) {
       const reader = stream.getReader();
-      let err;
       try {
-        try {
-          for (let next; !(next = await reader.read()).done; )
-            await write(CopyData, { data: next.value });
-        } catch (e) {
-          err = e;
-        } finally {
-          if (typeof err === "undefined") await write(CopyDone, {});
-          else await write(CopyFail, { cause: String(err) });
-        }
+        for (let next; !(next = await reader.read()).done; )
+          await write(CopyData, { data: next.value });
+        await write(CopyDone, {});
+      } catch (e) {
+        await write(CopyFail, { cause: String(e) });
+        throw e;
       } finally {
         reader.releaseLock();
       }

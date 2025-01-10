@@ -1,5 +1,6 @@
 import pglue, { PostgresError, SqlTypeError } from "./mod.ts";
 import { expect } from "jsr:@std/expect";
+import { toText } from "jsr:@std/streams";
 
 async function connect() {
   const pg = await pglue.connect(`postgres://test:test@localhost:5432/test`, {
@@ -107,6 +108,14 @@ Deno.test(`row`, async () => {
     expect(b).toBe("field b");
     expect(c).toBe("field c");
   }
+
+  const { readable, writable } = new TransformStream<Uint8Array>(
+    {},
+    new ByteLengthQueuingStrategy({ highWaterMark: 4096 }),
+    new ByteLengthQueuingStrategy({ highWaterMark: 4096 })
+  );
+  await pg.query`copy my_table to stdout`.stdout(writable);
+  expect(await toText(readable)).toBe(`field a\tfield b\tfield c\n`);
 });
 
 Deno.test(`sql injection`, async () => {
