@@ -579,6 +579,11 @@ export class Wire extends TypedEmitter<WireEvents> implements Disposable {
   }
 }
 
+const msg_PD = object({ P: Parse, D: Describe });
+const msg_BE = object({ B: Bind, E: Execute });
+const msg_BEc = object({ B: Bind, E: Execute, c: CopyDone });
+const msg_BEcC = object({ B: Bind, E: Execute, c: CopyDone, C: Close });
+
 function wire_impl(
   wire: Wire,
   socket: Deno.Conn,
@@ -904,10 +909,11 @@ function wire_impl(
       try {
         const { name, query } = this;
         return await pipeline(
-          async () => {
-            await write(Parse, { statement: name, query, param_types: [] });
-            await write(Describe, { which: "S", name });
-          },
+          () =>
+            write(msg_PD, {
+              P: { statement: name, query, param_types: [] },
+              D: { which: "S", name },
+            }),
           async () => {
             await read(ParseComplete);
             const param_desc = await read(ParameterDescription);
@@ -1078,16 +1084,23 @@ function wire_impl(
     try {
       const { rows, tag } = await pipeline(
         async () => {
-          await write(Bind, {
+          const B = {
             portal,
             statement: st.name,
             param_formats: [],
             param_values,
             column_formats: [],
-          });
-          await write(Execute, { portal, row_limit: 0 });
-          await write_copy_in(stdin);
-          await write(Close, { which: "P" as const, name: portal });
+          };
+          const E = { portal, row_limit: 0 };
+          const C = { which: "P" as const, name: portal };
+
+          if (stdin !== null) {
+            await write(msg_BE, { B, E });
+            await write_copy_in(stdin);
+            await write(Close, C);
+          } else {
+            return write(msg_BEcC, { B, E, c: {}, C });
+          }
         },
         async () => {
           await read(BindComplete);
@@ -1131,15 +1144,21 @@ function wire_impl(
     try {
       let { done, rows, tag } = await pipeline(
         async () => {
-          await write(Bind, {
+          const B = {
             portal,
             statement: st.name,
             param_formats: [],
             param_values,
             column_formats: [],
-          });
-          await write(Execute, { portal, row_limit: chunk_size });
-          await write_copy_in(stdin);
+          };
+          const E = { portal, row_limit: chunk_size };
+
+          if (stdin !== null) {
+            await write(msg_BE, { B, E });
+            await write_copy_in(stdin);
+          } else {
+            return write(msg_BEc, { B, E, c: {} });
+          }
         },
         async () => {
           await read(BindComplete);

@@ -14,9 +14,9 @@ The glue for TypeScript to PostgreSQL.
 ## Installation
 
 ```ts
-import pglue from "https://git.lua.re/luaneko/pglue/raw/tag/0.1.1/mod.ts";
+import pglue from "https://git.lua.re/luaneko/pglue/raw/tag/0.1.2/mod.ts";
 // ...or from github:
-import pglue from "https://raw.githubusercontent.com/luaneko/pglue/refs/tags/0.1.1/mod.ts";
+import pglue from "https://raw.githubusercontent.com/luaneko/pglue/refs/tags/0.1.2/mod.ts";
 ```
 
 ## Documentation
