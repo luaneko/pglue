@@ -345,6 +345,7 @@ export interface Row extends Iterable<unknown, void, void> {
 }
 
 export interface QueryOptions {
+  readonly simple: boolean;
   readonly chunk_size: number;
   readonly stdin: ReadableStream<Uint8Array> | null;
   readonly stdout: WritableStream<Uint8Array> | null;
@@ -357,6 +358,11 @@ export class Query<T = Row>
 
   constructor(f: (options: Partial<QueryOptions>) => ResultStream<T>) {
     this.#f = f;
+  }
+
+  simple(simple = true) {
+    const f = this.#f;
+    return new Query((o) => f({ simple, ...o }));
   }
 
   chunked(chunk_size = 1) {

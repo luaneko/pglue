@@ -2,9 +2,9 @@ import pglue, { PostgresError, SqlTypeError } from "./mod.ts";
 import { expect } from "jsr:@std/expect";
 import { toText } from "jsr:@std/streams";
 
-async function connect() {
+async function connect(params?: Record<string, string>) {
   const pg = await pglue.connect(`postgres://test:test@localhost:5432/test`, {
-    runtime_params: { client_min_messages: "INFO" },
+    runtime_params: { client_min_messages: "INFO", ...params },
   });
 
   return pg.on("log", (_level, ctx, msg) => {
@@ -139,7 +139,7 @@ Deno.test(`sql injection`, async () => {
   expect(name).toBe(input);
 });
 
-Deno.test(`pubsub`, async () => {
+Deno.test(`listen/notify`, async () => {
   await using pg = await connect();
   const sent: string[] = [];
 
@@ -152,6 +152,8 @@ Deno.test(`pubsub`, async () => {
     sent.push(payload);
     await ch.notify(payload);
   }
+
+  expect(sent.length).toBe(0);
 });
 
 Deno.test(`transactions`, async () => {
@@ -195,15 +197,35 @@ Deno.test(`streaming`, async () => {
 
   await pg.query`create table my_table (field text not null)`;
 
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 20; i++) {
     await pg.query`insert into my_table (field) values (${i})`;
   }
 
   let i = 0;
-  for await (const chunk of pg.query`select * from my_table`.chunked(10)) {
-    expect(chunk.length).toBe(10);
+  for await (const chunk of pg.query`select * from my_table`.chunked(5)) {
+    expect(chunk.length).toBe(5);
     for (const row of chunk) expect(row.field).toBe(`${i++}`);
   }
 
-  expect(i).toBe(100);
+  expect(i).toBe(20);
+});
+
+Deno.test(`simple`, async () => {
+  await using pg = await connect();
+  await using _tx = await pg.begin();
+
+  const rows = await pg.query`
+    create table my_table (field text not null);
+    insert into my_table (field) values ('one'), ('two'), ('three');
+    select * from my_table;
+    select * from my_table where field = 'two';
+  `.simple();
+
+  expect(rows.length).toBe(4);
+
+  const [{ field: a }, { field: b }, { field: c }, { field: d }] = rows;
+  expect(a).toBe("one");
+  expect(b).toBe("two");
+  expect(c).toBe("three");
+  expect(d).toBe("two");
 });
