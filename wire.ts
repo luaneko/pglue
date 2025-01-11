@@ -1235,6 +1235,7 @@ function wire_impl(
           continue;
 
         case CopyOutResponse.type:
+        case CopyBothResponse.type:
           await read_copy_out(stdout), (stdout = null);
           continue;
       }
@@ -1288,7 +1289,7 @@ function wire_impl(
       () => {
         log("debug", { query }, `executing simple query`);
         write(QueryMessage, { query });
-        write_copy_in(stdin);
+        return write_copy_in(stdin);
       },
       async () => {
         for (let chunks = [], err; ; ) {
