@@ -545,16 +545,157 @@ export class Wire<V extends WireEvents = WireEvents>
     return this.#notify(channel, payload);
   }
 
-  async get(param: string) {
-    return await this.query`select current_setting(${param}, true)`
-      .map(([s]) => String(s))
+  async current_setting(name: string) {
+    return await this.query<[string]>`select current_setting(${name}, true)`
+      .map(([x]) => x)
       .first_or(null);
   }
 
-  async set(param: string, value: string, local = false) {
-    return await this.query`select set_config(${param}, ${value}, ${local})`
-      .map(([s]) => String(s))
+  async set_config(name: string, value: string, local = false) {
+    return await this.query<
+      [string]
+    >`select set_config(${name}, ${value}, ${local})`
+      .map(([x]) => x)
       .first();
+  }
+
+  async cancel_backend(pid: number) {
+    return await this.query<[boolean]>`select pg_cancel_backend(${pid})`
+      .map(([x]) => x)
+      .first();
+  }
+
+  async terminate_backend(pid: number, timeout = 0) {
+    return await this.query<
+      [boolean]
+    >`select pg_terminate_backend(${pid}, ${timeout})`
+      .map(([x]) => x)
+      .first();
+  }
+
+  async inet() {
+    return await this.query<{
+      client_addr: string;
+      client_port: number;
+      server_addr: string;
+      server_port: number;
+    }>`
+      select
+        inet_client_addr() as client_addr,
+        inet_client_port() as client_port,
+        inet_server_addr() as server_addr,
+        inet_server_port() as server_por
+    `.first();
+  }
+
+  async listening_channels() {
+    return await this.query<[string]>`select pg_listening_channels()`
+      .map(([x]) => x)
+      .collect();
+  }
+
+  async notification_queue_usage() {
+    return await this.query<[number]>`select pg_notification_queue_usage()`
+      .map(([x]) => x)
+      .first();
+  }
+
+  async postmaster_start_time() {
+    return await this.query<[Date]>`select pg_postmaster_start_time()`
+      .map(([x]) => x)
+      .first();
+  }
+
+  async current_wal() {
+    return await this.query<{
+      lsn: string;
+      insert_lsn: string;
+      flush_lsn: string;
+    }>`
+      select
+        pg_current_wal_lsn() as lsn,
+        pg_current_wal_insert_lsn() as insert_lsn,
+        pg_current_wal_flush_lsn() as flush_lsn
+    `.first();
+  }
+
+  async switch_wal() {
+    return await this.query<[string]>`select pg_switch_wal()`
+      .map(([x]) => x)
+      .first();
+  }
+
+  async nextval(seq: string) {
+    return await this.query<[number | bigint]>`select nextval(${seq})`
+      .map(([x]) => x)
+      .first();
+  }
+
+  async setval(seq: string, value: number | bigint, is_called = true) {
+    return await this.query<
+      [number | bigint]
+    >`select setval(${seq}, ${value}, ${is_called})`
+      .map(([x]) => x)
+      .first();
+  }
+
+  async currval(seq: string) {
+    return await this.query<[number]>`select currval(${seq})`
+      .map(([x]) => x)
+      .first();
+  }
+
+  async lastval() {
+    return await this.query<[number]>`select lastval()`.map(([x]) => x).first();
+  }
+
+  async validate_input(s: string, type: string) {
+    return await this.query<{
+      message: string | null;
+      detail: string | null;
+      hint: string | null;
+      sql_error_code: string | null;
+    }>`select * from pg_input_error_info(${s}, ${type})`.first();
+  }
+
+  async current_xid() {
+    return await this.query<[number | bigint]>`select pg_current_xact_id()`
+      .map(([x]) => x)
+      .first();
+  }
+
+  async current_xid_if_assigned() {
+    return await this.query<
+      [number | bigint | null]
+    >`select pg_current_xact_id_if_assigned()`
+      .map(([x]) => x)
+      .first();
+  }
+
+  async xact_info(xid: number | bigint) {
+    return await this.query<{
+      status: "progress" | "committed" | "aborted";
+      age: number;
+      mxid_age: number;
+    }>`
+      select
+        pg_xact_status(${xid}) as status,
+        age(${xid}) as age,
+        mxid_age(${xid}) as mxid_age
+    `;
+  }
+
+  async version() {
+    return await this.query<{
+      postgres: string;
+      unicode: string;
+      icu_unicode: string | null;
+    }>`
+      select
+        version() as postgres,
+        unicode_version() as unicode,
+        icu_unicode_version() as icu_unicode
+    `.first();
   }
 
   close(reason?: unknown) {
@@ -1017,7 +1158,7 @@ function wire_impl(
     return jit.compiled<ParameterSerializer>`function ser_params(xs) {
       return [
         ${jit.map(", ", param_types, (type_oid, i) => {
-          const type = types[type_oid] ?? text;
+          const type = types[type_oid] ?? types[0] ?? text;
           return jit`${type}.output(xs[${i}])`;
         })}
       ];
@@ -1034,7 +1175,7 @@ function wire_impl(
   function make_row_ctor({ columns }: RowDescription) {
     const Row = jit.compiled<RowConstructor>`function Row(xs) {
       ${jit.map(" ", columns, ({ name, type_oid }, i) => {
-        const type = types[type_oid] ?? text;
+        const type = types[type_oid] ?? types[0] ?? text;
         return jit`this[${name}] = xs[${i}] === null ? null : ${type}.input(${from_utf8}(xs[${i}]));`;
       })}
     }`;

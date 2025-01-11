@@ -168,6 +168,23 @@ export const text: SqlType = {
   },
 };
 
+export const char: SqlType = {
+  input(c) {
+    const n = c.charCodeAt(0);
+    if (c.length === 1 && 0 <= n && n <= 255) return c;
+    throw new SqlTypeError(`invalid char input '${c}'`);
+  },
+  output(x) {
+    let c: string;
+    if (typeof x === "undefined" || x === null) return null;
+    else if (typeof x === "number") c = String.fromCharCode(x);
+    else c = String(x);
+    const n = c.charCodeAt(0);
+    if (c.length === 1 && 0 <= n && n <= 255) return c;
+    else throw new SqlTypeError(`invalid char output '${x}'`);
+  },
+};
+
 export const int2: SqlType = {
   input(s) {
     const n = Number(s);
@@ -201,6 +218,22 @@ export const int4: SqlType = {
   },
 };
 
+export const uint4: SqlType = {
+  input(s) {
+    const n = Number(s);
+    if (Number.isInteger(n) && 0 <= n && n <= 4294967295) return n;
+    else throw new SqlTypeError(`invalid uint4 input '${s}'`);
+  },
+  output(x) {
+    let n: number;
+    if (typeof x === "undefined" || x === null) return null;
+    else if (typeof x === "number") n = x;
+    else n = Number(x);
+    if (Number.isInteger(n) && 0 <= n && n <= 4294967295) return n.toString();
+    else throw new SqlTypeError(`invalid uint4 output '${x}'`);
+  },
+};
+
 export const int8: SqlType = {
   input(s) {
     const n = BigInt(s);
@@ -214,14 +247,36 @@ export const int8: SqlType = {
     else if (typeof x === "number" || typeof x === "bigint") n = x;
     else if (typeof x === "string") n = BigInt(x);
     else n = Number(x);
-    if (Number.isInteger(n)) {
-      if (-9007199254740991 <= n && n <= 9007199254740991) return n.toString();
-      else throw new SqlTypeError(`unsafe int8 output '${x}'`);
-    } else if (typeof n === "bigint") {
-      if (-9223372036854775808n <= n && n <= 9223372036854775807n)
-        return n.toString();
-    }
-    throw new SqlTypeError(`invalid int8 output '${x}'`);
+    if (
+      (typeof n === "number" && Number.isSafeInteger(n)) ||
+      (typeof n === "bigint" &&
+        -9223372036854775808n <= n &&
+        n <= 9223372036854775807n)
+    ) {
+      return n.toString();
+    } else throw new SqlTypeError(`invalid int8 output '${x}'`);
+  },
+};
+
+export const uint8: SqlType = {
+  input(s) {
+    const n = BigInt(s);
+    if (0n <= n && n <= 9007199254740991n) return Number(n);
+    else if (0n <= n && n <= 18446744073709551615n) return n;
+    else throw new SqlTypeError(`invalid uint8 input '${s}'`);
+  },
+  output(x) {
+    let n: number | bigint;
+    if (typeof x === "undefined" || x === null) return null;
+    else if (typeof x === "number" || typeof x === "bigint") n = x;
+    else if (typeof x === "string") n = BigInt(x);
+    else n = Number(x);
+    if (
+      (typeof n === "number" && Number.isSafeInteger(n) && 0 <= n) ||
+      (typeof n === "bigint" && 0n <= n && n <= 18446744073709551615n)
+    ) {
+      return n.toString();
+    } else throw new SqlTypeError(`invalid uint8 output '${x}'`);
   },
 };
 
@@ -305,20 +360,26 @@ export const json: SqlType = {
 };
 
 export const sql_types: SqlTypeMap = {
+  0: text,
   16: bool, // bool
-  25: text, // text
+  17: bytea, // bytea
+  18: char, // char
+  19: text, // name
+  20: int8, // int8
   21: int2, // int2
   23: int4, // int4
-  20: int8, // int8
-  26: int8, // oid
+  25: text, // text
+  26: uint4, // oid
+  28: uint4, // xid
+  29: uint4, // cid
+  114: json, // json
   700: float4, // float4
   701: float8, // float8
   1082: timestamptz, // date
   1114: timestamptz, // timestamp
   1184: timestamptz, // timestamptz
-  17: bytea, // bytea
-  114: json, // json
   3802: json, // jsonb
+  5069: uint8, // xid8
 };
 
 sql.types = sql_types;
