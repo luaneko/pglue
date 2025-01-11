@@ -27,11 +27,10 @@ export {
   sql,
   is_sql,
   Query,
-  type Row,
-  type CommandResult,
   type Result,
-  type Results,
-  type ResultStream,
+  type Row,
+  type Rows,
+  type RowStream,
 } from "./query.ts";
 
 export type Options = {

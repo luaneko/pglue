@@ -323,22 +323,15 @@ export const sql_types: SqlTypeMap = {
 
 sql.types = sql_types;
 
-type ReadonlyTuple<T extends readonly unknown[]> = readonly [...T];
-
-export interface CommandResult {
+export interface Result {
   readonly tag: string;
 }
 
-export interface Result<T> extends CommandResult, ReadonlyTuple<[T]> {
-  readonly row: T;
-}
-
-export interface Results<T> extends CommandResult, ReadonlyArray<T> {
+export interface Rows<T> extends Result, ReadonlyArray<T> {
   readonly rows: ReadonlyArray<T>;
 }
 
-export interface ResultStream<T>
-  extends AsyncIterable<T[], CommandResult, void> {}
+export interface RowStream<T> extends AsyncIterable<T[], Result, void> {}
 
 export interface Row extends Iterable<unknown, void, void> {
   [column: string]: unknown;
@@ -351,12 +344,10 @@ export interface QueryOptions {
   readonly stdout: WritableStream<Uint8Array> | null;
 }
 
-export class Query<T = Row>
-  implements PromiseLike<Results<T>>, ResultStream<T>
-{
+export class Query<T = Row> implements PromiseLike<Rows<T>>, RowStream<T> {
   readonly #f;
 
-  constructor(f: (options: Partial<QueryOptions>) => ResultStream<T>) {
+  constructor(f: (options: Partial<QueryOptions>) => RowStream<T>) {
     this.#f = f;
   }
 
@@ -431,20 +422,18 @@ export class Query<T = Row>
     return this.#f(options);
   }
 
-  async first(): Promise<Result<T>> {
-    const { rows, tag } = await this.collect(1);
-    if (!rows.length) throw new TypeError(`expected one row, got none instead`);
-    const row = rows[0];
-    return Object.assign([row] as const, { row: rows[0], tag });
+  async first(): Promise<T> {
+    const rows = await this.collect(1);
+    if (rows.length !== 0) return rows[0];
+    else throw new TypeError(`expected one row, got none instead`);
   }
 
-  async first_or<S>(value: S): Promise<Result<T | S>> {
-    const { rows, tag } = await this.collect(1);
-    const row = rows.length ? rows[0] : value;
-    return Object.assign([row] as const, { row: rows[0], tag });
+  async first_or<S>(value: S): Promise<T | S> {
+    const rows = await this.collect(1);
+    return rows.length !== 0 ? rows[0] : value;
   }
 
-  async collect(count = Number.POSITIVE_INFINITY): Promise<Results<T>> {
+  async collect(count = Number.POSITIVE_INFINITY): Promise<Rows<T>> {
     const iter = this[Symbol.asyncIterator]();
     let next;
     const rows = [];
@@ -470,8 +459,8 @@ export class Query<T = Row>
     return n;
   }
 
-  then<S = Results<T>, U = never>(
-    f?: ((rows: Results<T>) => S | PromiseLike<S>) | null,
+  then<S = Rows<T>, U = never>(
+    f?: ((rows: Rows<T>) => S | PromiseLike<S>) | null,
     g?: ((reason?: unknown) => U | PromiseLike<U>) | null
   ) {
     return this.collect().then(f, g);

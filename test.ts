@@ -16,7 +16,7 @@ Deno.test(`integers`, async () => {
   await using pg = await connect();
   await using _tx = await pg.begin();
 
-  const [{ a, b, c }] = await pg.query`
+  const { a, b, c } = await pg.query`
     select
       ${"0x100"}::int2 as a,
       ${777}::int4 as b,
@@ -32,7 +32,7 @@ Deno.test(`integers`, async () => {
   expect(b).toBe(777);
   expect(c).toBe(1234);
 
-  const [{ large }] =
+  const { large } =
     await pg.query`select ${"10000000000000000"}::int8 as large`.first();
 
   expect(large).toBe(10000000000000000n);
@@ -47,7 +47,7 @@ Deno.test(`boolean`, async () => {
   await using pg = await connect();
   await using _tx = await pg.begin();
 
-  const [{ a, b, c }] = await pg.query`
+  const { a, b, c } = await pg.query`
     select
       ${true}::bool as a,
       ${"n"}::bool as b,
@@ -63,7 +63,7 @@ Deno.test(`bytea`, async () => {
   await using pg = await connect();
   await using _tx = await pg.begin();
 
-  const [{ string, array, buffer }] = await pg.query`
+  const { string, array, buffer } = await pg.query`
     select
       ${"hello, world"}::bytea as string,
       ${[1, 2, 3, 4, 5]}::bytea as array,
@@ -93,7 +93,7 @@ Deno.test(`row`, async () => {
     ).tag
   ).toBe(`COPY 1`);
 
-  const [row] = await pg.query`select * from my_table`.first();
+  const row = await pg.query`select * from my_table`.first();
   {
     // columns by name
     const { a, b, c } = row;
@@ -132,7 +132,7 @@ Deno.test(`sql injection`, async () => {
     `INSERT 0 1`
   );
 
-  const [{ name }] = await pg.query<{ name: string }>`
+  const { name } = await pg.query<{ name: string }>`
     select name from users
   `.first();
 

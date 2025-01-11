@@ -35,11 +35,11 @@ import {
   type EncoderType,
 } from "./ser.ts";
 import {
-  type CommandResult,
   format,
   is_sql,
   Query,
-  type ResultStream,
+  type Result,
+  type RowStream,
   type Row,
   sql,
   type SqlFragment,
@@ -460,22 +460,22 @@ export type WireEvents = {
   close(reason?: unknown): void;
 };
 
-export interface Transaction extends CommandResult, AsyncDisposable {
+export interface Transaction extends Result, AsyncDisposable {
   readonly open: boolean;
-  commit(): Promise<CommandResult>;
-  rollback(): Promise<CommandResult>;
+  commit(): Promise<Result>;
+  rollback(): Promise<Result>;
 }
 
 export type ChannelEvents = { notify: NotificationHandler };
 export type NotificationHandler = (payload: string, process_id: number) => void;
 export interface Channel
   extends TypedEmitter<ChannelEvents>,
-    CommandResult,
+    Result,
     AsyncDisposable {
   readonly name: string;
   readonly open: boolean;
-  notify(payload: string): Promise<CommandResult>;
-  unlisten(): Promise<CommandResult>;
+  notify(payload: string): Promise<Result>;
+  unlisten(): Promise<Result>;
 }
 
 export async function wire_connect(options: WireOptions) {
@@ -546,16 +546,15 @@ export class Wire<V extends WireEvents = WireEvents>
   }
 
   async get(param: string) {
-    return (
-      await this.query`select current_setting(${param}, true)`
-        .map(([s]) => String(s))
-        .first_or(null)
-    )[0];
+    return await this.query`select current_setting(${param}, true)`
+      .map(([s]) => String(s))
+      .first_or(null);
   }
 
   async set(param: string, value: string, local = false) {
-    return await this
-      .query`select set_config(${param}, ${value}, ${local})`.execute();
+    return await this.query`select set_config(${param}, ${value}, ${local})`
+      .map(([s]) => String(s))
+      .first();
   }
 
   close(reason?: unknown) {
@@ -1143,7 +1142,7 @@ function wire_impl(
     query: string,
     stdin: ReadableStream<Uint8Array> | null,
     stdout: WritableStream<Uint8Array> | null
-  ): ResultStream<Row> {
+  ): RowStream<Row> {
     yield* await pipeline(
       () => {
         log("debug", { query }, `executing simple query`);
@@ -1189,7 +1188,7 @@ function wire_impl(
     params: unknown[],
     stdin: ReadableStream<Uint8Array> | null,
     stdout: WritableStream<Uint8Array> | null
-  ): ResultStream<Row> {
+  ): RowStream<Row> {
     const { query, name: statement } = st;
     const { ser_params, Row } = await st.parse();
     const param_values = ser_params(params);
@@ -1238,7 +1237,7 @@ function wire_impl(
     chunk_size: number,
     stdin: ReadableStream<Uint8Array> | null,
     stdout: WritableStream<Uint8Array> | null
-  ): ResultStream<Row> {
+  ): RowStream<Row> {
     const { query, name: statement } = st;
     const { ser_params, Row } = await st.parse();
     const param_values = ser_params(params);
@@ -1326,7 +1325,7 @@ function wire_impl(
       return tx_stack.indexOf(this) !== -1;
     }
 
-    constructor(begin: CommandResult) {
+    constructor(begin: Result) {
       Object.assign(this, begin);
     }
 
@@ -1384,7 +1383,7 @@ function wire_impl(
       return channels.get(this.#name) === this;
     }
 
-    constructor(name: string, listen: CommandResult) {
+    constructor(name: string, listen: Result) {
       super();
       Object.assign(this, listen);
       this.#name = name;
