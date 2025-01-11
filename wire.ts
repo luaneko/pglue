@@ -448,14 +448,15 @@ export interface WireOptions {
   readonly password: string;
   readonly database: string | null;
   readonly runtime_params: Record<string, string>;
+  readonly reconnect_delay: number;
   readonly types: SqlTypeMap;
 }
 
 export type WireEvents = {
   log(level: LogLevel, ctx: object, msg: string): void;
   notice(notice: PostgresError): void;
-  parameter(name: string, value: string, prev: string | null): void;
   notify(channel: string, payload: string, process_id: number): void;
+  parameter(name: string, value: string, prev: string | null): void;
   close(reason?: unknown): void;
 };
 
@@ -482,7 +483,10 @@ export async function wire_connect(options: WireOptions) {
   return await wire.connect(), wire;
 }
 
-export class Wire extends TypedEmitter<WireEvents> implements Disposable {
+export class Wire<V extends WireEvents = WireEvents>
+  extends TypedEmitter<V>
+  implements Disposable
+{
   readonly #params;
   readonly #connect;
   readonly #query;
@@ -575,7 +579,16 @@ async function socket_connect(hostname: string, port: number) {
 
 function wire_impl(
   wire: Wire,
-  { host, port, user, database, password, runtime_params, types }: WireOptions
+  {
+    host,
+    port,
+    user,
+    database,
+    password,
+    runtime_params,
+    reconnect_delay,
+    types,
+  }: WireOptions
 ) {
   // current runtime parameters as reported by postgres
   const params: Parameters = Object.create(null);
@@ -586,6 +599,7 @@ function wire_impl(
 
   // wire supports re-connection; socket and read/write channels are null when closed
   let connected = false;
+  let should_reconnect = false;
   let socket: Deno.Conn | null = null;
   let read_pop: Receiver<Uint8Array> | null = null;
   let write_push: Sender<Uint8Array> | null = null;
@@ -625,7 +639,7 @@ function wire_impl(
     } catch (e) {
       throw (err = e);
     } finally {
-      if (connected) close(err);
+      onclose(err);
     }
   }
 
@@ -640,6 +654,16 @@ function wire_impl(
         return true;
       }
 
+      case NotificationResponse.type: {
+        const { channel, payload, process_id } = ser_decode(
+          NotificationResponse,
+          msg
+        );
+        wire.emit("notify", channel, payload, process_id);
+        channels.get(channel)?.emit("notify", payload, process_id);
+        return true;
+      }
+
       case ParameterStatus.type: {
         const { name, value } = ser_decode(ParameterStatus, msg);
         const prev = params[name] ?? null;
@@ -649,16 +673,6 @@ function wire_impl(
           value,
         });
         wire.emit("parameter", name, value, prev);
-        return true;
-      }
-
-      case NotificationResponse.type: {
-        const { channel, payload, process_id } = ser_decode(
-          NotificationResponse,
-          msg
-        );
-        wire.emit("notify", channel, payload, process_id);
-        channels.get(channel)?.emit("notify", payload, process_id);
         return true;
       }
     }
@@ -688,7 +702,7 @@ function wire_impl(
     } catch (e) {
       throw (err = e);
     } finally {
-      if (connected) close(err);
+      onclose(err);
     }
   }
 
@@ -701,13 +715,26 @@ function wire_impl(
       read_pop = channel.receiver((push) => read_socket(s, push));
       write_push = channel.sender((pop) => write_socket(s, pop));
       await handle_auth(); // run auth with rw lock
-      connected = true;
+      (connected = true), (should_reconnect = reconnect_delay !== 0);
     } catch (e) {
       throw (close(e), e);
     }
   }
 
+  function reconnect() {
+    connect().catch((err) => {
+      log("warn", err as Error, `reconnect failed`);
+      setTimeout(reconnect, reconnect_delay);
+    });
+  }
+
   function close(reason?: unknown) {
+    (should_reconnect = false), onclose(reason);
+  }
+
+  function onclose(reason?: unknown) {
+    if (!connected) return;
+    else connected = false;
     socket?.close(), (socket = null);
     read_pop?.close(reason), (read_pop = null);
     write_push?.close(reason), (write_push = null);
@@ -715,7 +742,8 @@ function wire_impl(
       delete (params as Record<string, string>)[name];
     st_cache.clear(), (st_ids = 0);
     (tx_status = "I"), (tx_stack.length = 0);
-    connected &&= (wire.emit("close", reason), false);
+    should_reconnect &&= (setTimeout(reconnect, reconnect_delay), false);
+    wire.emit("close", reason);
   }
 
   // https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-PIPELINING
@@ -1390,7 +1418,7 @@ export type PoolEvents = {
   log(level: LogLevel, ctx: object, msg: string): void;
 };
 
-export interface PoolWire extends Wire {
+export interface PoolWire<V extends WireEvents = WireEvents> extends Wire<V> {
   readonly connection_id: number;
   readonly borrowed: boolean;
   release(): void;
@@ -1400,8 +1428,8 @@ export interface PoolTransaction extends Transaction {
   readonly wire: PoolWire;
 }
 
-export class Pool
-  extends TypedEmitter<PoolEvents>
+export class Pool<V extends PoolEvents = PoolEvents>
+  extends TypedEmitter<V>
   implements PromiseLike<PoolWire>, Disposable
 {
   readonly #acquire;

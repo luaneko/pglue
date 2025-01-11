@@ -8,7 +8,7 @@ import {
   union,
   unknown,
 } from "./valita.ts";
-import { Pool, wire_connect, type LogLevel } from "./wire.ts";
+import { Pool, wire_connect } from "./wire.ts";
 import { sql_types, type SqlTypeMap } from "./query.ts";
 
 export {
@@ -61,6 +61,7 @@ const ParsedOptions = object({
   runtime_params: record(string()).optional(() => ({})),
   max_connections: number().optional(() => 10),
   idle_timeout: number().optional(() => 20),
+  reconnect_delay: number().optional(() => 5),
   types: record(unknown())
     .optional(() => ({}))
     .map((types): SqlTypeMap => ({ ...sql_types, ...types })),
@@ -101,10 +102,6 @@ export function connect(s: string, options: Options = {}) {
 
 postgres.connect = connect;
 
-export type PostgresEvents = {
-  log(level: LogLevel, ctx: object, msg: string): void;
-};
-
 export class Postgres extends Pool {
   readonly #options;
 
@@ -113,8 +110,9 @@ export class Postgres extends Pool {
     this.#options = options;
   }
 
-  async connect() {
-    const wire = await wire_connect(this.#options);
+  async connect(options: Options = {}) {
+    const opts = ParsedOptions.parse({ ...this.#options, ...options });
+    const wire = await wire_connect(opts);
     return wire.on("log", (l, c, s) => this.emit("log", l, c, s));
   }
 }
