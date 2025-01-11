@@ -568,8 +568,20 @@ export class Wire<V extends WireEvents = WireEvents>
     return this.#notify(channel, payload);
   }
 
+  async subscribe(options: Partial<SubscribeOptions> = {}) {
+    const { lsn } = await this.current_wal();
+    return new Subscription(
+      SubscribeOptions.parse(
+        { ...this.#options, lsn, ...options },
+        { mode: "strip" }
+      )
+    ).connect();
+  }
+
   async current_setting(name: string) {
-    return await this.query<[string]>`select current_setting(${name}, true)`
+    return await this.query<
+      [string]
+    >`select current_setting(${name}::text, true)`
       .map(([x]) => x)
       .first_or(null);
   }
@@ -577,13 +589,15 @@ export class Wire<V extends WireEvents = WireEvents>
   async set_config(name: string, value: string, local = false) {
     return await this.query<
       [string]
-    >`select set_config(${name}, ${value}, ${local})`
+    >`select set_config(${name}::text, ${value}::text, ${local}::boolean)`
       .map(([x]) => x)
       .first();
   }
 
   async cancel_backend(pid: number) {
-    return await this.query<[boolean]>`select pg_cancel_backend(${pid})`
+    return await this.query<
+      [boolean]
+    >`select pg_cancel_backend(${pid}::integer)`
       .map(([x]) => x)
       .first();
   }
@@ -591,7 +605,7 @@ export class Wire<V extends WireEvents = WireEvents>
   async terminate_backend(pid: number, timeout = 0) {
     return await this.query<
       [boolean]
-    >`select pg_terminate_backend(${pid}, ${timeout})`
+    >`select pg_terminate_backend(${pid}::integer, ${timeout}::bigint)`
       .map(([x]) => x)
       .first();
   }
@@ -649,7 +663,7 @@ export class Wire<V extends WireEvents = WireEvents>
   }
 
   async nextval(seq: string) {
-    return await this.query<[number | bigint]>`select nextval(${seq})`
+    return await this.query<[number | bigint]>`select nextval(${seq}::regclass)`
       .map(([x]) => x)
       .first();
   }
@@ -657,13 +671,13 @@ export class Wire<V extends WireEvents = WireEvents>
   async setval(seq: string, value: number | bigint, is_called = true) {
     return await this.query<
       [number | bigint]
-    >`select setval(${seq}, ${value}, ${is_called})`
+    >`select setval(${seq}::regclass, ${value}::bigint, ${is_called}::boolean)`
       .map(([x]) => x)
       .first();
   }
 
   async currval(seq: string) {
-    return await this.query<[number]>`select currval(${seq})`
+    return await this.query<[number]>`select currval(${seq}::regclass)`
       .map(([x]) => x)
       .first();
   }
@@ -678,7 +692,7 @@ export class Wire<V extends WireEvents = WireEvents>
       detail: string | null;
       hint: string | null;
       sql_error_code: string | null;
-    }>`select * from pg_input_error_info(${s}, ${type})`.first();
+    }>`select * from pg_input_error_info(${s}::text, ${type}::text)`.first();
   }
 
   async current_xid() {
@@ -702,9 +716,9 @@ export class Wire<V extends WireEvents = WireEvents>
       mxid_age: number;
     }>`
       select
-        pg_xact_status(${xid}) as status,
-        age(${xid}) as age,
-        mxid_age(${xid}) as mxid_age
+        pg_xact_status(${xid}::xid8) as status,
+        age(${xid}::xid) as age,
+        mxid_age(${xid}::xid) as mxid_age
     `;
   }
 
@@ -728,6 +742,10 @@ export class Wire<V extends WireEvents = WireEvents>
   [Symbol.dispose]() {
     this.close();
   }
+}
+
+function randstr(entropy: number) {
+  return to_base58(crypto.getRandomValues(new Uint8Array(entropy)));
 }
 
 async function socket_connect(hostname: string, port: number) {
@@ -1533,7 +1551,9 @@ function wire_impl(
   }
 
   async function notify(channel: string, payload: string) {
-    return await query(sql`select pg_notify(${channel}, ${payload})`).execute();
+    return await query(
+      sql`select pg_notify(${channel}::text, ${payload}::text)`
+    ).execute();
   }
 
   const Channel = class extends TypedEmitter<ChannelEvents> implements Channel {
