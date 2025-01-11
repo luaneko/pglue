@@ -465,6 +465,12 @@
     "https://git.lua.re/luaneko/lstd/raw/tag/v0.2.0/events.ts": "28d395b8eea87f9bf7908a44b351d2d3c609ba7eab62bcecd0d43be8ee603438",
     "https://git.lua.re/luaneko/lstd/raw/tag/v0.2.0/func.ts": "f1935f673365cd68939531d65ef18fe81b5d43dc795b03c34bb5ad821ab1c9ff",
     "https://git.lua.re/luaneko/lstd/raw/tag/v0.2.0/jit.ts": "c1db7820de95c48521b057c7cdf9aa41f7eaba77462407c29d3932e7da252d53",
-    "https://git.lua.re/luaneko/lstd/raw/tag/v0.2.0/mod.ts": "95d8b15048a54cb82391825831f695b74e7c8b206317264a99c906ce25c63f13"
+    "https://git.lua.re/luaneko/lstd/raw/tag/v0.2.0/mod.ts": "95d8b15048a54cb82391825831f695b74e7c8b206317264a99c906ce25c63f13",
+    "https://git.lua.re/luaneko/lstd/raw/tag/v0.2.1/async.ts": "20bc54c7260c2d2cd27ffcca33b903dde57a3a3635386d8e0c6baca4b253ae4e",
+    "https://git.lua.re/luaneko/lstd/raw/tag/v0.2.1/bytes.ts": "94f4809b375800bb2c949e31082dfdf08d022db56c5b5c9c7dfe6f399285da6f",
+    "https://git.lua.re/luaneko/lstd/raw/tag/v0.2.1/events.ts": "28d395b8eea87f9bf7908a44b351d2d3c609ba7eab62bcecd0d43be8ee603438",
+    "https://git.lua.re/luaneko/lstd/raw/tag/v0.2.1/func.ts": "f1935f673365cd68939531d65ef18fe81b5d43dc795b03c34bb5ad821ab1c9ff",
+    "https://git.lua.re/luaneko/lstd/raw/tag/v0.2.1/jit.ts": "c1db7820de95c48521b057c7cdf9aa41f7eaba77462407c29d3932e7da252d53",
+    "https://git.lua.re/luaneko/lstd/raw/tag/v0.2.1/mod.ts": "589763be8ab18e7d6c5f5921e74ab44580f466c92acead401b2903d42d94112a"
   }
 }

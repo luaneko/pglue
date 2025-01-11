@@ -11,7 +11,7 @@ import {
   write_i8,
 } from "./lstd.ts";
 
-export class EncoderError extends Error {
+export class EncoderError extends TypeError {
   override get name() {
     return this.constructor.name;
   }

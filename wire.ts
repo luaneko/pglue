@@ -1,3 +1,5 @@
+import * as v from "./valita.ts";
+import { join } from "jsr:@std/path@^1.0.8";
 import {
   type BinaryLike,
   buf_concat,
@@ -11,6 +13,7 @@ import {
   type Receiver,
   semaphore,
   type Sender,
+  to_base58,
   to_base64,
   to_utf8,
   TypedEmitter,
@@ -45,8 +48,8 @@ import {
   type SqlFragment,
   type SqlTypeMap,
   text,
+  sql_types,
 } from "./query.ts";
-import { join } from "jsr:@std/path@^1.0.8";
 
 export class WireError extends Error {
   override get name() {
@@ -437,28 +440,52 @@ export const StartupMessage = msg("", {
 export const Sync = msg("S", {});
 export const Terminate = msg("X", {});
 
-export type LogLevel = "debug" | "info" | "warn" | "error" | "fatal";
-
-export interface Parameters extends Readonly<Partial<Record<string, string>>> {}
-
-export interface WireOptions {
-  readonly host: string;
-  readonly port: number;
-  readonly user: string;
-  readonly password: string;
-  readonly database: string | null;
-  readonly runtime_params: Record<string, string>;
-  readonly reconnect_delay: number;
-  readonly types: SqlTypeMap;
+function getenv(name: string) {
+  return Deno.env.get(name);
 }
+
+export type WireOptions = v.Infer<typeof WireOptions>;
+export const WireOptions = v.object({
+  host: v.string().optional(() => getenv("PGHOST") ?? "localhost"),
+  port: v
+    .union(v.string(), v.number())
+    .optional(() => getenv("PGPORT") ?? 5432)
+    .map(Number)
+    .assert(Number.isSafeInteger, `invalid number`),
+  user: v
+    .string()
+    .optional(() => getenv("PGUSER") ?? getenv("USER") ?? "postgres"),
+  password: v.string().optional(() => getenv("PGPASSWORD") ?? "postgres"),
+  database: v
+    .string()
+    .nullable()
+    .optional(() => getenv("PGDATABASE") ?? null),
+  runtime_params: v
+    .record(v.string())
+    .map((p) => ((p.application_name ??= "pglue"), p)),
+  reconnect_delay: v
+    .number()
+    .optional(() => 5)
+    .assert(Number.isSafeInteger, `invalid number`)
+    .nullable(),
+  types: v
+    .record(v.unknown())
+    .optional(() => ({}))
+    .map((types): SqlTypeMap => ({ ...sql_types, ...types })),
+});
 
 export type WireEvents = {
   log(level: LogLevel, ctx: object, msg: string): void;
+  connect(): void;
   notice(notice: PostgresError): void;
   notify(channel: string, payload: string, process_id: number): void;
   parameter(name: string, value: string, prev: string | null): void;
   close(reason?: unknown): void;
 };
+
+export type LogLevel = "debug" | "info" | "warn" | "error" | "fatal";
+
+export interface Parameters extends Readonly<Partial<Record<string, string>>> {}
 
 export interface Transaction extends Result, AsyncDisposable {
   readonly open: boolean;
@@ -478,15 +505,11 @@ export interface Channel
   unlisten(): Promise<Result>;
 }
 
-export async function wire_connect(options: WireOptions) {
-  const wire = new Wire(options);
-  return await wire.connect(), wire;
-}
-
 export class Wire<V extends WireEvents = WireEvents>
   extends TypedEmitter<V>
   implements Disposable
 {
+  readonly #options;
   readonly #params;
   readonly #connect;
   readonly #query;
@@ -509,11 +532,11 @@ export class Wire<V extends WireEvents = WireEvents>
       listen: this.#listen,
       notify: this.#notify,
       close: this.#close,
-    } = wire_impl(this, options));
+    } = wire_impl(this, (this.#options = options)));
   }
 
-  connect() {
-    return this.#connect();
+  async connect() {
+    return await this.#connect(), this;
   }
 
   query<T = Row>(sql: SqlFragment): Query<T>;
@@ -855,16 +878,18 @@ function wire_impl(
       read_pop = channel.receiver((push) => read_socket(s, push));
       write_push = channel.sender((pop) => write_socket(s, pop));
       await handle_auth(); // run auth with rw lock
-      (connected = true), (should_reconnect = reconnect_delay !== 0);
+      (connected = true), (should_reconnect = reconnect_delay !== null);
+      wire.emit("connect");
     } catch (e) {
       throw (close(e), e);
     }
   }
 
   function reconnect() {
+    if (should_reconnect) return;
     connect().catch((err) => {
       log("warn", err as Error, `reconnect failed`);
-      setTimeout(reconnect, reconnect_delay);
+      if (reconnect_delay !== null) setTimeout(reconnect, reconnect_delay);
     });
   }
 
@@ -882,7 +907,7 @@ function wire_impl(
       delete (params as Record<string, string>)[name];
     st_cache.clear(), (st_ids = 0);
     (tx_status = "I"), (tx_stack.length = 0);
-    should_reconnect &&= (setTimeout(reconnect, reconnect_delay), false);
+    should_reconnect &&= (reconnect(), false);
     wire.emit("close", reason);
   }
 
@@ -1063,9 +1088,7 @@ function wire_impl(
     const cbind_data = ``;
     const cbind_input = `${gs2_header}${cbind_data}`;
     const channel_binding = `c=${to_base64(cbind_input)}`;
-    const initial_nonce = `r=${to_base64(
-      crypto.getRandomValues(new Uint8Array(18))
-    )}`;
+    const initial_nonce = `r=${randstr(20)}`;
     const client_first_message_bare = `${username},${initial_nonce}`;
     const client_first_message = `${gs2_header}${client_first_message_bare}`;
     write(SASLInitialResponse, { mechanism, data: client_first_message });
@@ -1550,10 +1573,17 @@ function wire_impl(
   return { params, connect, query, begin, listen, notify, close };
 }
 
-export interface PoolOptions extends WireOptions {
-  max_connections: number;
-  idle_timeout: number;
-}
+export type PoolOptions = v.Infer<typeof PoolOptions>;
+export const PoolOptions = WireOptions.extend({
+  max_connections: v
+    .number()
+    .optional(() => 10)
+    .assert(Number.isSafeInteger, `invalid number`),
+  idle_timeout: v
+    .number()
+    .optional(() => 30)
+    .assert(Number.isSafeInteger, `invalid number`),
+});
 
 export type PoolEvents = {
   log(level: LogLevel, ctx: object, msg: string): void;
@@ -1706,12 +1736,11 @@ function pool_impl(
   };
 
   async function connect() {
-    const wire = new PoolWire(options);
-    await wire.connect(), all.add(wire);
-    const { connection_id } = wire;
-    return wire
+    const wire = new PoolWire({ ...options, reconnect_delay: null });
+    const { connection_id } = wire
       .on("log", (l, c, s) => pool.emit("log", l, { ...c, connection_id }, s))
       .on("close", () => forget(wire));
+    return await wire.connect(), all.add(wire), wire;
   }
 
   async function acquire() {

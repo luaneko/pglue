@@ -2,18 +2,14 @@ import pglue, { PostgresError, SqlTypeError } from "./mod.ts";
 import { expect } from "jsr:@std/expect";
 import { toText } from "jsr:@std/streams";
 
-async function connect(params?: Record<string, string>) {
-  const pg = await pglue.connect(`postgres://test:test@localhost:5432/test`, {
-    runtime_params: { client_min_messages: "INFO", ...params },
-  });
+const pool = pglue(`postgres://test:test@localhost:5432/test`, {
+  runtime_params: { client_min_messages: "INFO" },
+});
 
-  return pg.on("log", (_level, ctx, msg) => {
-    console.info(`${msg}`, ctx);
-  });
-}
+pool.on("log", (level, ctx, msg) => console.info(`${level}: ${msg}`, ctx));
 
 Deno.test(`integers`, async () => {
-  await using pg = await connect();
+  await using pg = await pool.connect();
   await using _tx = await pg.begin();
 
   const { a, b, c } = await pg.query`
@@ -44,7 +40,7 @@ Deno.test(`integers`, async () => {
 });
 
 Deno.test(`boolean`, async () => {
-  await using pg = await connect();
+  await using pg = await pool.connect();
   await using _tx = await pg.begin();
 
   const { a, b, c } = await pg.query`
@@ -60,7 +56,7 @@ Deno.test(`boolean`, async () => {
 });
 
 Deno.test(`bytea`, async () => {
-  await using pg = await connect();
+  await using pg = await pool.connect();
   await using _tx = await pg.begin();
 
   const { string, array, buffer } = await pg.query`
@@ -76,7 +72,7 @@ Deno.test(`bytea`, async () => {
 });
 
 Deno.test(`row`, async () => {
-  await using pg = await connect();
+  await using pg = await pool.connect();
   await using _tx = await pg.begin();
 
   expect(
@@ -119,7 +115,7 @@ Deno.test(`row`, async () => {
 });
 
 Deno.test(`sql injection`, async () => {
-  await using pg = await connect();
+  await using pg = await pool.connect();
   await using _tx = await pg.begin();
 
   const input = `injection'); drop table users; --`;
@@ -140,7 +136,7 @@ Deno.test(`sql injection`, async () => {
 });
 
 Deno.test(`listen/notify`, async () => {
-  await using pg = await connect();
+  await using pg = await pool.connect();
   const sent: string[] = [];
 
   await using ch = await pg.listen(`my channel`, (payload) => {
@@ -157,7 +153,7 @@ Deno.test(`listen/notify`, async () => {
 });
 
 Deno.test(`transactions`, async () => {
-  await using pg = await connect();
+  await using pg = await pool.connect();
 
   await pg.begin(async (pg) => {
     await pg.begin(async (pg, tx) => {
@@ -192,7 +188,7 @@ Deno.test(`transactions`, async () => {
 });
 
 Deno.test(`streaming`, async () => {
-  await using pg = await connect();
+  await using pg = await pool.connect();
   await using _tx = await pg.begin();
 
   await pg.query`create table my_table (field text not null)`;
@@ -211,7 +207,7 @@ Deno.test(`streaming`, async () => {
 });
 
 Deno.test(`simple`, async () => {
-  await using pg = await connect();
+  await using pg = await pool.connect();
   await using _tx = await pg.begin();
 
   const rows = await pg.query`

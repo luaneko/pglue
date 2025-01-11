@@ -1,15 +1,13 @@
-import pg_conn_string from "npm:pg-connection-string@^2.7.0";
+import pg_conn_str from "npm:pg-connection-string@^2.7.0";
+import type * as v from "./valita.ts";
 import {
-  type Infer,
-  number,
-  object,
-  record,
-  string,
-  union,
-  unknown,
-} from "./valita.ts";
-import { Pool, wire_connect } from "./wire.ts";
-import { sql_types, type SqlTypeMap } from "./query.ts";
+  Pool,
+  PoolOptions,
+  SubscribeOptions,
+  Subscription,
+  Wire,
+  WireOptions,
+} from "./wire.ts";
 
 export {
   WireError,
@@ -33,85 +31,77 @@ export {
   type RowStream,
 } from "./query.ts";
 
-export type Options = {
-  host?: string;
-  port?: number | string;
-  user?: string;
-  password?: string;
-  database?: string | null;
-  max_connections?: number;
-  idle_timeout?: number;
-  runtime_params?: Record<string, string>;
-  types?: SqlTypeMap;
-};
+export default function postgres(s: string, options: Partial<Options> = {}) {
+  return new Postgres(Options.parse(parse_conn(s, options), { mode: "strip" }));
+}
 
-type ParsedOptions = Infer<typeof ParsedOptions>;
-const ParsedOptions = object({
-  host: string().optional(() => "localhost"),
-  port: union(
-    number(),
-    string().map((s) => parseInt(s, 10))
-  ).optional(() => 5432),
-  user: string().optional(() => "postgres"),
-  password: string().optional(() => "postgres"),
-  database: string()
-    .nullable()
-    .optional(() => null),
-  runtime_params: record(string()).optional(() => ({})),
-  max_connections: number().optional(() => 10),
-  idle_timeout: number().optional(() => 20),
-  reconnect_delay: number().optional(() => 5),
-  types: record(unknown())
-    .optional(() => ({}))
-    .map((types): SqlTypeMap => ({ ...sql_types, ...types })),
-});
-
-function parse_opts(s: string, opts: Options) {
+function parse_conn(s: string, options: Partial<WireOptions>) {
   const {
     host,
     port,
     user,
     password,
     database,
-    ssl: _ssl, // TODO:
+    ssl: _ssl, // TODO: ssl support
     ...runtime_params
-  } = pg_conn_string.parse(s);
+  } = s ? pg_conn_str.parse(s) : {};
 
-  const { PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE, USER } =
-    Deno.env.toObject();
-
-  return ParsedOptions.parse({
-    ...opts,
-    host: opts.host ?? host ?? PGHOST ?? undefined,
-    port: opts.port ?? port ?? PGPORT ?? undefined,
-    user: opts.user ?? user ?? PGUSER ?? USER ?? undefined,
-    password: opts.password ?? password ?? PGPASSWORD ?? undefined,
-    database: opts.database ?? database ?? PGDATABASE ?? undefined,
-    runtime_params: { ...runtime_params, ...opts.runtime_params },
-  });
-}
-
-export default function postgres(s: string, options: Options = {}) {
-  return new Postgres(parse_opts(s, options));
-}
-
-export function connect(s: string, options: Options = {}) {
-  return wire_connect(parse_opts(s, options));
+  return {
+    ...options,
+    host: options.host ?? host,
+    port: options.port ?? port,
+    user: options.user ?? user,
+    password: options.password ?? password,
+    database: options.database ?? database,
+    runtime_params: { ...runtime_params, ...options.runtime_params },
+  };
 }
 
 postgres.connect = connect;
+postgres.subscribe = subscribe;
+
+export async function connect(s: string, options: Partial<WireOptions> = {}) {
+  return await new Wire(
+    WireOptions.parse(parse_conn(s, options), { mode: "strip" })
+  ).connect();
+}
+
+export async function subscribe(
+  s: string,
+  options: Partial<SubscribeOptions> = {}
+) {
+  return await new Subscription(
+    SubscribeOptions.parse(parse_conn(s, options), { mode: "strip" })
+  ).connect();
+}
+
+export type Options = v.Infer<typeof Options>;
+export const Options = PoolOptions;
 
 export class Postgres extends Pool {
   readonly #options;
 
-  constructor(options: ParsedOptions) {
+  constructor(options: Options) {
     super(options);
     this.#options = options;
   }
 
-  async connect(options: Options = {}) {
-    const opts = ParsedOptions.parse({ ...this.#options, ...options });
-    const wire = await wire_connect(opts);
-    return wire.on("log", (l, c, s) => this.emit("log", l, c, s));
+  async connect(options: Partial<WireOptions> = {}) {
+    return await new Wire(
+      WireOptions.parse({ ...this.#options, ...options }, { mode: "strip" })
+    )
+      .on("log", (l, c, s) => this.emit("log", l, c, s))
+      .connect();
+  }
+
+  async subscribe(options: Partial<SubscribeOptions> = {}) {
+    return await new Subscription(
+      SubscribeOptions.parse(
+        { ...this.#options, ...options },
+        { mode: "strip" }
+      )
+    )
+      .on("log", (l, c, s) => this.emit("log", l, c, s))
+      .connect();
   }
 }

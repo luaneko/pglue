@@ -1,4 +1,4 @@
-import type { ObjectType } from "./valita.ts";
+import type * as v from "./valita.ts";
 import { from_hex, to_hex, to_utf8 } from "./lstd.ts";
 
 export const sql_format = Symbol.for(`re.lua.pglue.sql_format`);
@@ -470,7 +470,7 @@ export class Query<T = Row> implements PromiseLike<Rows<T>>, RowStream<T> {
     });
   }
 
-  parse<S extends ObjectType>(
+  parse<S extends v.ObjectType>(
     type: S,
     { mode = "strip" }: { mode?: "passthrough" | "strict" | "strip" } = {}
   ) {
