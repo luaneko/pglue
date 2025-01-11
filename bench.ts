@@ -60,7 +60,7 @@ for (const n of [1, 5, 10]) {
   });
 
   Deno.bench({
-    name: `postgres-js`,
+    name: `postgres.js`,
     group: `select n=${n}`,
     async fn(b) {
       await bench_select(b, n, () => c_pgjs`select * from pg_type`);
@@ -95,7 +95,7 @@ for (const n of [1, 10, 100, 200]) {
   });
 
   Deno.bench({
-    name: `postgres-js`,
+    name: `postgres.js`,
     group: `insert n=${n}`,
     async fn(b) {
       await c_pgjs`begin`;
