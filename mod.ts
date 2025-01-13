@@ -1,14 +1,14 @@
 import pg_conn_str from "npm:pg-connection-string@^2.7.0";
-import type * as v from "./valita.ts";
 import { Pool, PoolOptions, Wire, WireOptions } from "./wire.ts";
 
 export {
   Wire,
   WireOptions,
   WireError,
-  PostgresError,
   Pool,
   PoolOptions,
+  PostgresError,
+  type Postgres,
   type WireEvents,
   type PoolEvents,
   type LogLevel,
@@ -34,8 +34,19 @@ export {
   type RowStream,
 } from "./query.ts";
 
-export default function postgres(s: string, options: Partial<Options> = {}) {
-  return new Postgres(Options.parse(parse_conn(s, options), { mode: "strip" }));
+export default function postgres(
+  s: string,
+  options: Partial<PoolOptions> = {}
+) {
+  return new Pool(PoolOptions.parse(parse_conn(s, options), { mode: "strip" }));
+}
+
+postgres.connect = connect;
+
+export async function connect(s: string, options: Partial<WireOptions> = {}) {
+  return await new Wire(
+    WireOptions.parse(parse_conn(s, options), { mode: "strip" })
+  ).connect();
 }
 
 function parse_conn(s: string, options: Partial<WireOptions>) {
@@ -58,32 +69,4 @@ function parse_conn(s: string, options: Partial<WireOptions>) {
     database: options.database ?? database,
     runtime_params: { ...runtime_params, ...options.runtime_params },
   };
-}
-
-postgres.connect = connect;
-
-export async function connect(s: string, options: Partial<WireOptions> = {}) {
-  return await new Wire(
-    WireOptions.parse(parse_conn(s, options), { mode: "strip" })
-  ).connect();
-}
-
-export type Options = v.Infer<typeof Options>;
-export const Options = PoolOptions;
-
-export class Postgres extends Pool {
-  readonly #options;
-
-  constructor(options: Options) {
-    super(options);
-    this.#options = options;
-  }
-
-  async connect(options: Partial<WireOptions> = {}) {
-    return await new Wire(
-      WireOptions.parse({ ...this.#options, ...options }, { mode: "strip" })
-    )
-      .on("log", (l, c, s) => this.emit("log", l, c, s))
-      .connect();
-  }
 }

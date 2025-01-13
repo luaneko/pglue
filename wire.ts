@@ -495,8 +495,8 @@ export interface Transaction extends Result, AsyncDisposable {
   rollback(): Promise<Result>;
 }
 
-export type ChannelEvents = { notify: NotificationHandler };
 export type NotificationHandler = (payload: string, process_id: number) => void;
+export type ChannelEvents = { notify: NotificationHandler };
 export interface Channel
   extends TypedEmitter<ChannelEvents>,
     Result,
@@ -507,9 +507,19 @@ export interface Channel
   unlisten(): Promise<Result>;
 }
 
+export interface Postgres {
+  query<T = Row>(sql: SqlFragment): Query<T>;
+  query<T = Row>(s: TemplateStringsArray, ...xs: unknown[]): Query<T>;
+
+  begin(): Promise<Transaction>;
+  begin<T>(
+    f: (pg: Postgres, tx: Transaction) => T | PromiseLike<T>
+  ): Promise<T>;
+}
+
 export class Wire<V extends WireEvents = WireEvents>
   extends TypedEmitter<V>
-  implements Disposable
+  implements Postgres, Disposable
 {
   readonly #options;
   readonly #params;
@@ -1626,8 +1636,9 @@ export interface PoolTransaction extends Transaction {
 
 export class Pool<V extends PoolEvents = PoolEvents>
   extends TypedEmitter<V>
-  implements PromiseLike<PoolWire>, Disposable
+  implements Postgres, PromiseLike<PoolWire>, Disposable
 {
+  readonly #options;
   readonly #acquire;
   readonly #begin;
   readonly #close;
@@ -1638,7 +1649,15 @@ export class Pool<V extends PoolEvents = PoolEvents>
       acquire: this.#acquire,
       begin: this.#begin,
       close: this.#close,
-    } = pool_impl(this, options));
+    } = pool_impl(this, (this.#options = options)));
+  }
+
+  async connect(options: Partial<WireOptions> = {}) {
+    return await new Wire(
+      WireOptions.parse({ ...this.#options, ...options }, { mode: "strip" })
+    )
+      .on("log", (l, c, s) => (this as Pool).emit("log", l, c, s))
+      .connect();
   }
 
   get(): Promise<PoolWire>;
