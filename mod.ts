@@ -1,13 +1,6 @@
 import pg_conn_str from "npm:pg-connection-string@^2.7.0";
 import type * as v from "./valita.ts";
-import {
-  Pool,
-  PoolOptions,
-  SubscribeOptions,
-  Subscription,
-  Wire,
-  WireOptions,
-} from "./wire.ts";
+import { Pool, PoolOptions, Wire, WireOptions } from "./wire.ts";
 
 export {
   WireError,
@@ -58,20 +51,10 @@ function parse_conn(s: string, options: Partial<WireOptions>) {
 }
 
 postgres.connect = connect;
-postgres.subscribe = subscribe;
 
 export async function connect(s: string, options: Partial<WireOptions> = {}) {
   return await new Wire(
     WireOptions.parse(parse_conn(s, options), { mode: "strip" })
-  ).connect();
-}
-
-export async function subscribe(
-  s: string,
-  options: Partial<SubscribeOptions> = {}
-) {
-  return await new Subscription(
-    SubscribeOptions.parse(parse_conn(s, options), { mode: "strip" })
   ).connect();
 }
 
@@ -89,17 +72,6 @@ export class Postgres extends Pool {
   async connect(options: Partial<WireOptions> = {}) {
     return await new Wire(
       WireOptions.parse({ ...this.#options, ...options }, { mode: "strip" })
-    )
-      .on("log", (l, c, s) => this.emit("log", l, c, s))
-      .connect();
-  }
-
-  async subscribe(options: Partial<SubscribeOptions> = {}) {
-    return await new Subscription(
-      SubscribeOptions.parse(
-        { ...this.#options, ...options },
-        { mode: "strip" }
-      )
     )
       .on("log", (l, c, s) => this.emit("log", l, c, s))
       .connect();

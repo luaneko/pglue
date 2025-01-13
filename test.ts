@@ -4,6 +4,7 @@ import { toText } from "jsr:@std/streams";
 
 const pool = pglue(`postgres://test:test@localhost:5432/test`, {
   runtime_params: { client_min_messages: "INFO" },
+  verbose: true,
 });
 
 pool.on("log", (level, ctx, msg) => console.info(`${level}: ${msg}`, ctx));

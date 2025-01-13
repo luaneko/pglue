@@ -15,6 +15,7 @@ import {
   type Sender,
   to_base58,
   to_base64,
+  to_hex,
   to_utf8,
   TypedEmitter,
 } from "./lstd.ts";
@@ -472,6 +473,7 @@ export const WireOptions = v.object({
     .record(v.unknown())
     .optional(() => ({}))
     .map((types): SqlTypeMap => ({ ...sql_types, ...types })),
+  verbose: v.boolean().optional(() => false),
 });
 
 export type WireEvents = {
@@ -483,7 +485,7 @@ export type WireEvents = {
   close(reason?: unknown): void;
 };
 
-export type LogLevel = "debug" | "info" | "warn" | "error" | "fatal";
+export type LogLevel = "trace" | "debug" | "info" | "warn" | "error" | "fatal";
 
 export interface Parameters extends Readonly<Partial<Record<string, string>>> {}
 
@@ -566,16 +568,6 @@ export class Wire<V extends WireEvents = WireEvents>
 
   notify(channel: string, payload: string) {
     return this.#notify(channel, payload);
-  }
-
-  async subscribe(options: Partial<SubscribeOptions> = {}) {
-    const { lsn } = await this.current_wal();
-    return new Subscription(
-      SubscribeOptions.parse(
-        { ...this.#options, lsn, ...options },
-        { mode: "strip" }
-      )
-    ).connect();
   }
 
   async current_setting(name: string) {
@@ -769,6 +761,7 @@ function wire_impl(
     runtime_params,
     reconnect_delay,
     types,
+    verbose,
   }: WireOptions
 ) {
   const params: Parameters = Object.create(null);
@@ -841,7 +834,7 @@ function wire_impl(
     else throw new WireError(`connection closed`);
   }
 
-  async function read_msg() {
+  async function read_any() {
     const msg = read_queue !== null ? await read_queue() : null;
     if (msg !== null) return msg;
     else throw new WireError(`connection closed`);
@@ -859,6 +852,8 @@ function wire_impl(
         if (buf.length < size) break;
         const msg = buf.subarray(0, size); // shift one message from buf
         buf = buf.subarray(size);
+        if (verbose)
+          log("trace", {}, `RECV <- ${msg_type(msg)} ${to_hex(msg)}`);
         if (!handle_msg(msg)) send(msg);
       }
     }
@@ -899,25 +894,26 @@ function wire_impl(
         wire.emit("parameter", name, value, prev);
         return true;
       }
-    }
 
-    return false;
+      default:
+        return false;
+    }
   }
 
   function write<T>(type: Encoder<T>, value: T) {
-    write_msg(ser_encode(type, value));
-  }
-
-  function write_msg(buf: Uint8Array) {
-    if (write_queue !== null) write_queue(buf);
+    if (write_queue !== null) write_queue(ser_encode(type, value));
     else throw new WireError(`connection closed`);
   }
 
   async function write_socket(socket: Deno.Conn, recv: Receiver<Uint8Array>) {
     for (let buf; (buf = await recv()) !== null; ) {
-      const bufs = [buf]; // proactively dequeue more queued msgs synchronously, if any
-      for (let i = 1, buf; (buf = recv.try()) !== null; ) bufs[i++] = buf;
-      if (bufs.length !== 1) buf = buf_concat(bufs); // write queued msgs concatenated, reduce write syscalls
+      const msgs = [buf]; // proactively dequeue more queued msgs synchronously, if any
+      for (let i = 1, buf; (buf = recv.try()) !== null; ) msgs[i++] = buf;
+      if (verbose) {
+        for (const msg of msgs)
+          log("trace", {}, `SEND -> ${msg_type(msg)} ${to_hex(msg)}`);
+      }
+      if (msgs.length !== 1) buf = buf_concat(msgs); // write queued msgs concatenated, reduce write syscalls
       for (let i = 0, n = buf.length; i < n; )
         i += await socket.write(buf.subarray(i));
     }
@@ -944,7 +940,7 @@ function wire_impl(
     } finally {
       try {
         let msg;
-        while (msg_type((msg = await read_msg())) !== ReadyForQuery.type);
+        while (msg_type((msg = await read_any())) !== ReadyForQuery.type);
         ({ tx_status } = ser_decode(ReadyForQuery, msg));
       } catch {
         // ignored
@@ -983,7 +979,7 @@ function wire_impl(
     });
 
     auth: for (;;) {
-      const msg = msg_check_err(await read_msg());
+      const msg = msg_check_err(await read_any());
       switch (msg_type(msg)) {
         case NegotiateProtocolVersion.type: {
           const { bad_options } = ser_decode(NegotiateProtocolVersion, msg);
@@ -1027,7 +1023,7 @@ function wire_impl(
 
     // wait for ready
     ready: for (;;) {
-      const msg = msg_check_err(await read_msg());
+      const msg = msg_check_err(await read_any());
       switch (msg_type(msg)) {
         case BackendKeyData.type:
           continue; // ignored
@@ -1163,7 +1159,7 @@ function wire_impl(
             await read(ParseComplete);
             const ser_params = make_param_ser(await read(ParameterDescription));
 
-            const msg = msg_check_err(await read_msg());
+            const msg = msg_check_err(await read_any());
             const Row =
               msg_type(msg) === NoData.type
                 ? EmptyRow
@@ -1244,7 +1240,7 @@ function wire_impl(
     stdout: WritableStream<Uint8Array> | null
   ) {
     for (let rows = [], i = 0; ; ) {
-      const msg = msg_check_err(await read_msg());
+      const msg = msg_check_err(await read_any());
       switch (msg_type(msg)) {
         default:
         case DataRow.type:
@@ -1278,40 +1274,47 @@ function wire_impl(
   }
 
   async function read_copy_out(stream: WritableStream<Uint8Array> | null) {
-    if (stream !== null) {
-      const writer = stream.getWriter();
-      try {
-        for (let msg; msg_type((msg = await read_msg())) !== CopyDone.type; ) {
-          const { data } = ser_decode(CopyData, msg_check_err(msg));
-          await writer.write(to_utf8(data));
+    const writer = stream?.getWriter();
+    try {
+      copy: for (;;) {
+        const msg = msg_check_err(await read_any());
+        switch (msg_type(msg)) {
+          default:
+          case CopyData.type: {
+            const { data } = ser_decode(CopyData, msg);
+            console.log(`COPY OUT`, to_hex(data));
+            await writer?.write(to_utf8(data));
+            continue;
+          }
+
+          case CopyDone.type:
+          case CommandComplete.type: // walsender sends 'C' to end of CopyBothResponse
+            await writer?.close();
+            break copy;
         }
-        await writer.close();
-      } catch (e) {
-        await writer.abort(e);
-        throw e;
-      } finally {
-        writer.releaseLock();
       }
-    } else {
-      while (msg_type(msg_check_err(await read_msg())) !== CopyDone.type);
+    } catch (e) {
+      await writer?.abort(e);
+      throw e;
+    } finally {
+      writer?.releaseLock();
     }
   }
 
   async function write_copy_in(stream: ReadableStream<Uint8Array> | null) {
-    if (stream !== null) {
-      const reader = stream.getReader();
-      try {
+    const reader = stream?.getReader();
+    try {
+      if (reader) {
         for (let next; !(next = await reader.read()).done; )
           write(CopyData, { data: next.value });
-        write(CopyDone, {});
-      } catch (e) {
-        write(CopyFail, { cause: String(e) });
-        throw e;
-      } finally {
-        reader.releaseLock();
       }
-    } else {
       write(CopyDone, {});
+    } catch (e) {
+      write(CopyFail, { cause: String(e) });
+      reader?.cancel(e);
+      throw e;
+    } finally {
+      reader?.releaseLock();
     }
   }
 
@@ -1328,23 +1331,30 @@ function wire_impl(
       },
       async () => {
         for (let chunks = [], err; ; ) {
-          const msg = await read_msg();
+          const msg = await read_any();
           switch (msg_type(msg)) {
             default:
             case ReadyForQuery.type:
+              ser_decode(ReadyForQuery, msg);
               if (err) throw err;
               else return chunks;
 
             case RowDescription.type: {
               const Row = make_row_ctor(ser_decode(RowDescription, msg));
               const { rows } = await read_rows(Row, stdout);
-              chunks.push(rows);
-              stdout = null;
+              chunks.push(rows), (stdout = null);
               continue;
             }
 
             case EmptyQueryResponse.type:
             case CommandComplete.type:
+            case CopyInResponse.type:
+            case CopyDone.type:
+              continue;
+
+            case CopyOutResponse.type:
+            case CopyBothResponse.type:
+              await read_copy_out(stdout), (stdout = null);
               continue;
 
             case ErrorResponse.type: {
@@ -1484,7 +1494,7 @@ function wire_impl(
   const tx_begin = query(sql`begin`);
   const tx_commit = query(sql`commit`);
   const tx_rollback = query(sql`rollback`);
-  const sp_name = sql.ident`__pglue__tx`;
+  const sp_name = sql.ident`__pglue_tx`;
   const sp_savepoint = query(sql`savepoint ${sp_name}`);
   const sp_release = query(sql`release ${sp_name}`);
   const sp_rollback_to = query(sql`rollback to ${sp_name}`);
