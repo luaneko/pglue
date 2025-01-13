@@ -3,12 +3,20 @@ import type * as v from "./valita.ts";
 import { Pool, PoolOptions, Wire, WireOptions } from "./wire.ts";
 
 export {
+  Wire,
+  WireOptions,
   WireError,
   PostgresError,
+  Pool,
+  PoolOptions,
+  type WireEvents,
+  type PoolEvents,
   type LogLevel,
+  type Parameters,
   type Transaction,
   type Channel,
-  type Parameters,
+  type ChannelEvents,
+  type NotificationHandler,
 } from "./wire.ts";
 export {
   type SqlFragment,
@@ -16,6 +24,8 @@ export {
   type SqlTypeMap,
   SqlTypeError,
   sql,
+  sql_types,
+  sql_format,
   is_sql,
   Query,
   type Result,
